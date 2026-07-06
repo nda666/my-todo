@@ -1,0 +1,91 @@
+# GraphQL Schema Reference
+
+```graphql
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+type Jabatan {
+  kode: Int!
+  nama: String!
+}
+
+type Divisi {
+  kode: Int!
+  nama: String!
+}
+
+type Pegawai {
+  kode: Int!
+  nama: String!
+  kodejabatan: Int!
+  kodedivisi: Int!
+  jabatan: Jabatan
+  divisi: Divisi
+}
+
+type User {
+  kodeku: String!
+  username: String!
+  pegawai: Pegawai
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+type Task {
+  id: ID!
+  title: String!
+  description: String
+  status: TaskStatus!
+  createdAt: String!
+  updatedAt: String!
+  comments: [TaskComment!]!
+  meta: [TaskMeta!]!
+}
+
+type TaskComment {
+  id: ID!
+  content: String!
+  userKode: String!
+  createdAt: String!
+}
+
+type TaskMeta {
+  id: ID!
+  key: String!
+  value: String
+}
+
+input CreateTaskInput {
+  title: String!
+  description: String
+  status: TaskStatus
+}
+
+input UpdateTaskInput {
+  title: String
+  description: String
+  status: TaskStatus
+}
+
+type Query {
+  me: User
+  tasks: [Task!]!
+  task(id: ID!): Task
+}
+
+type Mutation {
+  login(username: String!, password: String!): AuthPayload!
+  createTask(input: CreateTaskInput!): Task!
+  updateTask(id: ID!, input: UpdateTaskInput!): Task!
+  deleteTask(id: ID!): Boolean!
+  addTaskComment(taskId: ID!, content: String!): TaskComment!
+  setTaskMeta(taskId: ID!, key: String!, value: String): TaskMeta!
+  deleteTaskMeta(id: ID!): Boolean!
+}
+```
