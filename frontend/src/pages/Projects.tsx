@@ -1,5 +1,4 @@
 import React, {
-    useCallback,
     useEffect,
     useState,
 } from 'react';
@@ -18,11 +17,14 @@ import {
     PlusOutlined,
     ProjectOutlined,
 } from '@ant-design/icons';
+import {
+    useMutation,
+    useQuery,
+} from '@apollo/client';
 
 import CreateProjectModal from '../components/CreateProjectModal';
 import { useAuth } from '../contexts/AuthContext';
 import TeamLayout from '../layouts/TeamLayout';
-import { graphql } from '../lib/auth';
 import {
     CREATE_PROJECT,
     GET_PROJECTS,
@@ -41,29 +43,34 @@ export default function Projects() {
     console.log("LELELE", me?.pegawai);
     const isLeader = me?.pegawai?.statusLeader === 1
 
-    const load = useCallback(async () => {
-        setLoading(true)
-        try {
-            const data = await graphql(GET_PROJECTS)
-            setProjects(data.projects || [])
-        } finally {
+    const { data, loading: queryLoading, refetch } = useQuery(GET_PROJECTS)
+
+    useEffect(() => {
+        if (!queryLoading) {
+            setProjects(data?.projects || [])
             setLoading(false)
         }
-    }, [])
+    }, [data, queryLoading])
 
-    useEffect(() => { load() }, [load])
+    const [createProjectMutation, { loading: createLoading }] = useMutation(CREATE_PROJECT)
+
+    useEffect(() => {
+        setCreating(createLoading)
+    }, [createLoading])
 
     const handleCreate = async (values: { name: string; description?: string }) => {
-        setCreating(true)
+        setIsModalOpen(false)
         try {
-            await graphql(CREATE_PROJECT, values)
+            await createProjectMutation({
+                variables: values,
+            })
             message.success('Project berhasil dibuat!')
-            setIsModalOpen(false)
-            load()
+            await refetch()
         } catch (err: any) {
             message.error(err.message || 'Gagal membuat project')
+            setIsModalOpen(true)
         } finally {
-            setCreating(false)
+            // handled by createLoading
         }
     }
 

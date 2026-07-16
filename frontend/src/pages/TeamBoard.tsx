@@ -35,7 +35,9 @@ export default function TeamBoard() {
     return (
         <TeamLayout
             title="Task Tim — Semua Anggota"
-            onBack={() => navigate(`/teams/${divisiKode}`)}
+            onBack={() => navigate(`/teams/${divisiKode}`, {
+                preventScrollReset: true
+            })}
             wide
             storageKey="teamboard_sidebar_collapsed"
             defaultCollapsed

@@ -8,10 +8,10 @@ import {
 
 import { useMutation } from '@apollo/client';
 
+import { apolloClient } from '../lib/apolloClient';
 import {
   clearToken,
   getToken,
-  graphql,
   saveUser,
   setToken,
 } from '../lib/auth';
@@ -27,7 +27,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [loginMutation] = useMutation(LOGIN_MUTATION);
 
-  // Fetch current user from API using saved token
   const fetchMe = useCallback(async () => {
     const token = getToken()
     if (!token) {
@@ -36,23 +35,20 @@ export function AuthProvider({ children }) {
       return
     }
 
-    try {
-      const data = await graphql(ME)
-      if (data.me) {
-        setMe(data.me)
-        saveUser(data.me)
-      } else {
-        // Token valid tapi user tidak ditemukan
-        setMe(null)
-        clearToken()
-      }
-    } catch {
-      // Token expired / invalid
+    // Token ada, validasi user via ME
+    const { data } = await apolloClient.query({
+      query: ME,
+      fetchPolicy: 'network-only',
+    })
+
+    if (data?.me) {
+      setMe(data.me)
+      saveUser(data.me)
+    } else {
       setMe(null)
       clearToken()
-    } finally {
-      setLoading(false)
     }
+    setLoading(false)
   }, [])
 
   // On mount, verify token & fetch user

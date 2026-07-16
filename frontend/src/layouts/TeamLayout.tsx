@@ -67,6 +67,7 @@ export default function TeamLayout({
 
     return (
         <Layout className="!min-h-screen !bg-slate-50 dark:!bg-slate-950">
+
             {!isMobile && (
                 <div
                     className="fixed top-0 left-0 h-screen z-50 transition-all duration-200"

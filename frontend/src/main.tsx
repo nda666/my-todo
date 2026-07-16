@@ -47,6 +47,7 @@ function AppWithAntdTheme() {
 initPersistedCache().then(() => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
+      {/* <ScrollRestoration getKey={(location) => location.pathname} /> */}
       <ThemeProvider>
         <AppWithAntdTheme />
       </ThemeProvider>

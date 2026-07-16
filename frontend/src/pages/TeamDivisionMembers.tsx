@@ -1,31 +1,31 @@
 import React, {
-  useEffect,
-  useMemo,
-  useState,
+    useEffect,
+    useMemo,
+    useState,
 } from 'react';
 
 import {
-  Avatar,
-  Button,
-  Empty,
-  Input,
-  Spin,
-  Typography,
+    Avatar,
+    Button,
+    Empty,
+    Input,
+    Spin,
+    Typography,
 } from 'antd';
 import {
-  useNavigate,
-  useParams,
+    useNavigate,
+    useParams,
 } from 'react-router-dom';
 
 import {
-  CrownFilled,
-  SearchOutlined,
-  TableOutlined,
-  UserOutlined,
+    CrownFilled,
+    SearchOutlined,
+    TableOutlined,
+    UserOutlined,
 } from '@ant-design/icons';
+import { useQuery } from '@apollo/client';
 
 import TeamLayout from '../layouts/TeamLayout';
-import { graphql } from '../lib/auth';
 import { GET_COLLEAGUES_BY_DIVISI } from '../lib/queries';
 import { Colleague } from '../types/task';
 
@@ -40,18 +40,17 @@ export default function TeamDivisionMembers() {
 
     const divisiKode = Number(divisiId)
 
+    const { data, loading: queryLoading } = useQuery(GET_COLLEAGUES_BY_DIVISI, {
+        variables: { divisiKode },
+        skip: !divisiKode,
+    })
+
     useEffect(() => {
-        const load = async () => {
-            setLoading(true)
-            try {
-                const data = await graphql(GET_COLLEAGUES_BY_DIVISI, { divisiKode })
-                setMembers(data.colleaguesByDivisi || [])
-            } finally {
-                setLoading(false)
-            }
+        if (!queryLoading) {
+            setMembers(data?.colleaguesByDivisi || [])
+            setLoading(false)
         }
-        if (divisiKode) load()
-    }, [divisiKode])
+    }, [data, queryLoading])
 
     const filtered = useMemo(
         () => members.filter((m) => m.nama.toLowerCase().includes(search.toLowerCase())),
@@ -61,7 +60,9 @@ export default function TeamDivisionMembers() {
     return (
         <TeamLayout
             title="Anggota Divisi"
-            onBack={() => navigate('/teams')}
+            onBack={() => navigate('/teams', {
+                preventScrollReset: true
+            })}
             storageKey="teams_sidebar_collapsed"
             headerExtra={
                 <Button icon={<TableOutlined />} onClick={() => navigate(`/teams/${divisiKode}/team-board`)}>

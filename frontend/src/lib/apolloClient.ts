@@ -51,6 +51,9 @@ export const apolloClient = new ApolloClient({
     watchQuery: { fetchPolicy: "cache-and-network" }, // tampilkan cache dulu (instan), lalu update diam-diam di background
     query: { fetchPolicy: "cache-first" },
   },
+  devtools: {
+    enabled: import.meta.env.DEV,
+  },
 });
 
 // Persistent cache ke localStorage - saat reload halaman, data lama langsung muncul

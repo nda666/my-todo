@@ -33,7 +33,7 @@ func main() {
 	}
 
 	doranClient := doranapi.NewClient(cfg.DoranAPIKey, cfg.DoranAuthBaseURL, cfg.DoranOfficeBaseURL)
-	dataCache := cache.New(15 * time.Minute)
+	dataCache := cache.New(380 * time.Minute)
 	repos := repository.NewRepositories(db, doranClient, dataCache)
 	authService := auth.NewService(cfg, doranClient)
 

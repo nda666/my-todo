@@ -28,7 +28,7 @@ export const USER_FIELDS = gql`
 `;
 
 export const COMMENT_FIELDS = gql`
-  fragment CommentFields on Comment {
+  fragment CommentFields on TaskComment {
     id
     content
     userKode
@@ -287,6 +287,7 @@ export const GET_TEAM_OVERVIEW = gql`
   query TeamOverview {
     tasks(limit: 200) {
       tasks {
+        id
         userKode
       }
     }

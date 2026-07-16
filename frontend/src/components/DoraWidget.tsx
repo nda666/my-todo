@@ -18,8 +18,8 @@ import {
     RobotOutlined,
     SendOutlined,
 } from '@ant-design/icons';
+import { useMutation } from '@apollo/client';
 
-import { graphql } from '../lib/auth';
 import {
     ASK_DORA,
     CREATE_TASK,
@@ -49,6 +49,9 @@ export default function DoraWidget() {
     const [sending, setSending] = useState(false)
     const scrollRef = useRef<HTMLDivElement>(null)
 
+    const [askDoraMutation] = useMutation(ASK_DORA)
+    const [createTaskMutation] = useMutation(CREATE_TASK)
+
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
     }, [messages])
@@ -62,8 +65,10 @@ export default function DoraWidget() {
 
         try {
             const history: DoraMessage[] = messages.map((m) => ({ role: m.role, content: m.content }))
-            const data = await graphql(ASK_DORA, { message: text, history })
-            const resp = data.askDora
+            const resp = await askDoraMutation({
+                variables: { message: text, history },
+            }).then((r) => r.data.askDora)
+
             setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, action: resp.suggestedAction }])
         } catch (err: any) {
             setMessages((prev) => [...prev, { role: 'assistant', content: 'Maaf, aku lagi gak bisa merespons. Coba lagi sebentar lagi ya.' }])
@@ -87,12 +92,14 @@ export default function DoraWidget() {
 
     const handleConfirmAction = async (index: number, action: DoraSuggestedAction) => {
         try {
-            await graphql(CREATE_TASK, {
-                input: {
-                    title: action.title,
-                    description: action.description || null,
-                    ...(action.targetUserKode ? { targetUserKode: action.targetUserKode } : {}),
-                    meta: [],
+            await createTaskMutation({
+                variables: {
+                    input: {
+                        title: action.title,
+                        description: action.description || null,
+                        ...(action.targetUserKode ? { targetUserKode: action.targetUserKode } : {}),
+                        meta: [],
+                    },
                 },
             })
             message.success('Task berhasil dibuat!')
@@ -158,11 +165,9 @@ export default function DoraWidget() {
                                                     Buat Task Ini
                                                 </Button>
                                             )}
-
-
-
                                         </div>
                                     )}
+
                                     {m.action && m.action.type === 'generate_report' && (
                                         <div className="mt-2 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-700 rounded-lg p-2.5">
                                             <div className="text-xs font-semibold !text-slate-700 dark:!text-slate-200 mb-0.5">
@@ -209,3 +214,4 @@ export default function DoraWidget() {
         </>
     )
 }
+

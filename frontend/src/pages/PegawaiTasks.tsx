@@ -1,25 +1,26 @@
 import React, {
-  useCallback,
-  useState,
+    useCallback,
+    useState,
 } from 'react';
 
 import {
-  Card,
-  Empty,
-  Layout,
-  Segmented,
-  Spin,
-  Typography,
+    Card,
+    Empty,
+    Layout,
+    Segmented,
+    Spin,
+    Typography,
 } from 'antd';
 import {
-  useNavigate,
-  useParams,
+    useNavigate,
+    useParams,
 } from 'react-router-dom';
 
 import {
-  AppstoreOutlined,
-  TableOutlined,
+    AppstoreOutlined,
+    TableOutlined,
 } from '@ant-design/icons';
+import { useMutation } from '@apollo/client';
 
 import TaskCard from '../components/TaskCard';
 import TaskStatusTabs from '../components/TaskStatusTabs';
@@ -29,25 +30,24 @@ import { useInfiniteScrollSentinel } from '../hooks/useInfiniteScrollSentinel';
 import { useInfiniteTasks } from '../hooks/useInfiniteTasks';
 import { useLocalStorageState } from '../hooks/useLocalStorageState';
 import TeamLayout from '../layouts/TeamLayout';
-import { graphql } from '../lib/auth';
 import { CloudinaryUploadResult } from '../lib/cloudinary';
 import {
-  ADD_COMMENT,
-  DELETE_META,
-  DELETE_TASK,
-  REORDER_META,
-  SET_META,
-  TOGGLE_REACTION,
-  UPDATE_TASK,
+    ADD_COMMENT,
+    DELETE_META,
+    DELETE_TASK,
+    REORDER_META,
+    SET_META,
+    TOGGLE_REACTION,
+    UPDATE_TASK,
 } from '../lib/queries';
 import {
-  MetaDraft,
-  Task,
+    MetaDraft,
+    Task,
 } from '../types/task';
 import {
-  countTasksByTab,
-  filterTasksByTab,
-  StatusTabKey,
+    countTasksByTab,
+    filterTasksByTab,
+    StatusTabKey,
 } from '../utils/taskFilters';
 
 const { Header, Content } = Layout
@@ -64,20 +64,47 @@ export default function PegawaiTasks() {
     const currentDivisiKode = me?.pegawai?.divisi?.kode || null
     const isOwnPage = pegawaiId === me?.kodeku
 
-    const { tasks, loading, loadingMore, hasMore, loadMore, reload } = useInfiniteTasks(pegawaiId || null)
+    const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(pegawaiId || null)
     const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
 
-    const handleUpdate = async (id: string, input: any) => { await graphql(UPDATE_TASK, { id, input }); reload() }
-    const handleDelete = async (id: string) => { await graphql(DELETE_TASK, { id }); reload() }
+    const [updateTaskMutation] = useMutation(UPDATE_TASK)
+    const [deleteTaskMutation] = useMutation(DELETE_TASK)
+    const [addCommentMutation] = useMutation(ADD_COMMENT)
+    const [toggleReactionMutation] = useMutation(TOGGLE_REACTION)
+    const [setMetaMutation] = useMutation(SET_META)
+    const [deleteMetaMutation] = useMutation(DELETE_META)
+    const [reorderMetaMutation] = useMutation(REORDER_META)
+
+    const handleUpdate = async (id: string, input: any) => {
+        await updateTaskMutation({ variables: { id, input } })
+        // trigger list refresh
+        loadMore()
+    }
+    const handleDelete = async (id: string) => {
+        await deleteTaskMutation({ variables: { id } })
+        loadMore()
+    }
     const handleAddComment = async (taskId: string, content: string, parentId: string | null, attachments: CloudinaryUploadResult[]) => {
-        await graphql(ADD_COMMENT, { taskId, content, parentId, attachments }); reload()
+        await addCommentMutation({ variables: { taskId, content, parentId, attachments } })
+        loadMore()
     }
-    const handleToggleReaction = async (commentId: string, emoji: string) => { await graphql(TOGGLE_REACTION, { commentId, emoji }); reload() }
+    const handleToggleReaction = async (commentId: string, emoji: string) => {
+        await toggleReactionMutation({ variables: { commentId, emoji } })
+        loadMore()
+    }
     const handleSetMeta = async (taskId: string, key: string, value: string | null, type: MetaDraft['type']) => {
-        const data = await graphql(SET_META, { taskId, key, value, type }); reload(); return data.setTaskMeta
+        const { data } = await setMetaMutation({ variables: { taskId, key, value, type } })
+        loadMore()
+        return data?.setTaskMeta
     }
-    const handleDeleteMeta = async (id: string) => { await graphql(DELETE_META, { id }) }
-    const handleReorderMeta = async (taskId: string, orderedIds: string[]) => { await graphql(REORDER_META, { taskId, orderedIds }); reload() }
+    const handleDeleteMeta = async (id: string) => {
+        await deleteMetaMutation({ variables: { id } })
+        loadMore()
+    }
+    const handleReorderMeta = async (taskId: string, orderedIds: string[]) => {
+        await reorderMetaMutation({ variables: { taskId, orderedIds } })
+        loadMore()
+    }
 
     const canManageTask = useCallback(
         (task: Task) => task.userKode === me?.kodeku || task.createdBy === me?.kodeku,

@@ -18,33 +18,34 @@ import {
     SearchOutlined,
     TeamOutlined,
 } from '@ant-design/icons';
+import { useQuery } from '@apollo/client';
 
 import { getDivisionIcon } from '../constants/divisionIcons';
 import TeamLayout from '../layouts/TeamLayout';
-import { graphql } from '../lib/auth';
 import { GET_TEAMS_SUMMARY } from '../lib/queries';
 import { DivisionSummary } from '../types/task';
 
 const { Text } = Typography
 
 export default function Teams() {
+
+    const { data, loading: queryLoading, previousData } = useQuery(GET_TEAMS_SUMMARY, {
+        fetchPolicy: "cache-and-network"
+    })
+
     const navigate = useNavigate()
-    const [divisions, setDivisions] = useState<DivisionSummary[]>([])
-    const [loading, setLoading] = useState(true)
+    const [divisions, setDivisions] = useState<DivisionSummary[]>(data?.teamsSummary ??
+        previousData?.teamsSummary ??
+        [])
+    const [loading, setLoading] = useState(false)
     const [search, setSearch] = useState('')
 
     useEffect(() => {
-        const load = async () => {
-            setLoading(true)
-            try {
-                const data = await graphql(GET_TEAMS_SUMMARY)
-                setDivisions(data.teamsSummary || [])
-            } finally {
-                setLoading(false)
-            }
+        if (!queryLoading) {
+            setDivisions(data?.teamsSummary || [])
+            setLoading(false)
         }
-        load()
-    }, [])
+    }, [data, queryLoading])
 
     const filtered = useMemo(
         () => divisions.filter((d) => d.nama.toLowerCase().includes(search.toLowerCase())),
@@ -52,7 +53,7 @@ export default function Teams() {
     )
 
     return (
-        <TeamLayout title="Semua Divisi" onBack={() => navigate('/')} storageKey="teams_sidebar_collapsed">
+        <TeamLayout title="Semua Divisi" onBack={() => navigate('/', { preventScrollReset: true })} storageKey="teams_sidebar_collapsed">
             <Input
                 placeholder="Cari nama divisi..."
                 prefix={<SearchOutlined className="!text-slate-400" />}
@@ -114,3 +115,4 @@ export default function Teams() {
         </TeamLayout>
     )
 }
+

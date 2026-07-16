@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 
 import {
-  Colleague,
-  Me,
+    Colleague,
+    Me,
 } from '../types/task';
 import Sidebar from './Sidebar';
 
@@ -29,8 +29,8 @@ export default function AutoHideSidebarWrapper(props: AutoHideSidebarWrapperProp
             <Sidebar
                 {...props}
                 collapsed={!hovered}
-                selectedColleagueKode={null}
-                onSelectColleague={() => { }}
+            // selectedColleagueKode={null}
+            // onSelectColleague={() => { }}
             />
         </div>
     )

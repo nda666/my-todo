@@ -70,6 +70,7 @@ function AppRoutes() {
       <PrivateRoute>
         <DoraWidgetGate />
       </PrivateRoute>
+
     </>
   )
 }
@@ -77,6 +78,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
+
       <AppRoutes />
     </BrowserRouter>
   )
