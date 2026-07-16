@@ -1,12 +1,31 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { graphql, setToken, clearToken, getToken, saveUser } from '../lib/auth'
-import { LOGIN as LOGIN_MUTATION, ME } from '../lib/queries'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
+
+import { useMutation } from '@apollo/client';
+
+import {
+  clearToken,
+  getToken,
+  graphql,
+  saveUser,
+  setToken,
+} from '../lib/auth';
+import {
+  LOGIN as LOGIN_MUTATION,
+  ME,
+} from '../lib/queries';
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [me, setMe] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loginMutation] = useMutation(LOGIN_MUTATION);
 
   // Fetch current user from API using saved token
   const fetchMe = useCallback(async () => {
@@ -42,7 +61,7 @@ export function AuthProvider({ children }) {
   }, [fetchMe])
 
   const login = useCallback(async (username, password) => {
-    const data = await graphql(LOGIN_MUTATION, { username, password })
+    const { data } = await loginMutation({ variables: { username, password } });
     setToken(data.login.token)
     saveUser(data.login.user)
     setMe(data.login.user)
@@ -54,10 +73,15 @@ export function AuthProvider({ children }) {
     setMe(null)
   }, [])
 
+  const refreshMe = useCallback(async () => {
+    await fetchMe()
+  }, [fetchMe])
+
+
   const isLoggedIn = !!me
 
   return (
-    <AuthContext.Provider value={{ me, isLoggedIn, login, logout, loading }}>
+    <AuthContext.Provider value={{ me, isLoggedIn, login, logout, loading, refreshMe }}>
       {children}
     </AuthContext.Provider>
   )

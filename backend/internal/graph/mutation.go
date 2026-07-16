@@ -1,0 +1,785 @@
+package graph
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"strconv"
+	"time"
+
+	"golang-todo/internal/auth"
+	"golang-todo/internal/libs/ai"
+	"golang-todo/internal/libs/cloudinaryup"
+	"golang-todo/internal/models"
+	"golang-todo/internal/repository"
+
+	"github.com/graphql-go/graphql"
+)
+
+func mutationFields(repos *repository.Repositories, authService *auth.Service, aiClient ai.Client, projectPolicy auth.ProjectPolicy, t *Types) graphql.Fields {
+
+	return graphql.Fields{
+		"login": &graphql.Field{
+			Type: t.AuthPayloadType,
+			Args: graphql.FieldConfigArgument{
+				"username": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"password": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				username := p.Args["username"].(string)
+				password := p.Args["password"].(string)
+				token, err := authService.Login(p.Context, username, password)
+				if err != nil {
+					return nil, err
+				}
+				claims, err := authService.ParseToken(token)
+				if err != nil {
+					return nil, err
+				}
+
+				var jabatan *models.Jabatan
+				statusLeader := 0
+				if pegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, claims.PegawaiKode); err == nil {
+					jabatan = pegawai.Jabatan
+					statusLeader = pegawai.StatusLeader
+				}
+				avatarURL := claims.AvatarURL
+				if custom, ok, _ := repos.Profile.GetAvatar(p.Context, claims.Kodeku); ok && custom != "" {
+					avatarURL = custom
+				}
+
+				user := models.User{
+					Kodeku: claims.Kodeku, Username: claims.Username, AvatarURL: avatarURL,
+					Pegawai: &models.Pegawai{
+						Kode: claims.PegawaiKode, Nama: claims.Fullname, KodeDivisi: claims.KodeDivisi,
+						StatusLeader: statusLeader, Jabatan: jabatan,
+						Divisi: &models.Divisi{Kode: claims.KodeDivisi, Nama: claims.NamaDivisi},
+					},
+				}
+				return map[string]interface{}{"token": token, "user": formatUser(user)}, nil
+			},
+		},
+
+		"createTask": &graphql.Field{
+			Type: t.TaskType,
+			Args: graphql.FieldConfigArgument{
+				"input": &graphql.ArgumentConfig{Type: graphql.NewNonNull(t.CreateTaskInput)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				input := p.Args["input"].(map[string]interface{})
+
+				isLeader := false
+				if pegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, claims.PegawaiKode); err == nil {
+					isLeader = pegawai.StatusLeader == 1
+				}
+
+				targetUserKode := claims.Kodeku
+				if v, ok := input["targetUserKode"]; ok && v != nil {
+					targetUserKode = v.(string)
+				}
+
+				if !isLeader {
+					targetUserKode = claims.Kodeku
+				} else if targetUserKode != claims.Kodeku {
+					targetKode, convErr := strconv.Atoi(targetUserKode)
+					if convErr != nil {
+						targetUserKode = claims.Kodeku
+					} else if _, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, targetKode); err != nil {
+						targetUserKode = claims.Kodeku // target gak ketemu di divisi yang sama -> fallback ke diri sendiri
+					}
+				}
+
+				task := models.Task{
+					Title:       input["title"].(string),
+					Description: strVal(input["description"]),
+					Status:      models.TaskStatusPending,
+					UserKode:    targetUserKode,
+					CreatedBy:   claims.Kodeku,
+				}
+				if status, ok := input["status"]; ok && status != nil {
+					task.Status = status.(models.TaskStatus)
+				}
+				if err := repos.Task.Create(p.Context, &task); err != nil {
+					return nil, err
+				}
+
+				if metaList, ok := input["meta"].([]interface{}); ok {
+					for i, raw := range metaList {
+						m := raw.(map[string]interface{})
+						_type := m["type"].(models.MetaType)
+						cleanVal := strVal(m["value"])
+						if _type == models.MetaTypeFile || _type == models.MetaTypeImage {
+							movedUrl, err := cloudinaryup.MoveAssetIdToPublicFolder(p.Context, cleanVal)
+							if err == nil {
+								cleanVal = movedUrl
+							} else {
+								cleanVal = ""
+							}
+						}
+						meta := models.TaskMeta{
+							TaskID:    task.ID,
+							Key:       m["key"].(string),
+							Value:     cleanVal,
+							Type:      m["type"].(models.MetaType),
+							SortOrder: i,
+						}
+						repos.Meta.Create(p.Context, &meta)
+					}
+				}
+
+				createdTask, err := repos.Task.FindByID(p.Context, task.ID)
+				if err != nil {
+					return nil, err
+				}
+				return formatTask(*createdTask, claims.Kodeku), nil
+			},
+		},
+
+		"updateTask": &graphql.Field{
+			Type: t.TaskType,
+			Args: graphql.FieldConfigArgument{
+				"id":    &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"input": &graphql.ArgumentConfig{Type: graphql.NewNonNull(t.UpdateTaskInput)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				id, err := parseID(p.Args["id"])
+				if err != nil {
+					return nil, err
+				}
+				task, err := repos.Task.FindOwned(p.Context, id, claims.Kodeku)
+				if err != nil {
+					return nil, err
+				}
+				input := p.Args["input"].(map[string]interface{})
+				if v, ok := input["title"]; ok && v != nil {
+					task.Title = v.(string)
+				}
+				if v, ok := input["description"]; ok {
+					task.Description = strVal(v)
+				}
+				if v, ok := input["status"]; ok && v != nil {
+					newStatus := v.(models.TaskStatus)
+					if newStatus == models.TaskStatusCompleted && task.Status != models.TaskStatusCompleted {
+						now := time.Now()
+						task.CompletedAt = &now
+					} else if newStatus != models.TaskStatusCompleted && task.Status == models.TaskStatusCompleted {
+						task.CompletedAt = nil // dibatalkan -> kosongkan lagi (requirement eksplisit)
+					}
+					task.Status = newStatus
+				}
+				if err := repos.Task.Save(p.Context, task); err != nil {
+					return nil, err
+				}
+				updated, err := repos.Task.FindByID(p.Context, task.ID)
+				if err != nil {
+					return nil, err
+				}
+				return formatTask(*updated, claims.Kodeku), nil
+			},
+		},
+
+		"deleteTask": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				id, err := parseID(p.Args["id"])
+				if err != nil {
+					return nil, err
+				}
+				deleted, err := repos.Task.Delete(p.Context, id, claims.Kodeku)
+				if err != nil {
+					return nil, err
+				}
+				return deleted, nil
+			},
+		},
+
+		"addTaskComment": &graphql.Field{
+			Type: t.TaskCommentType,
+			Args: graphql.FieldConfigArgument{
+				"taskId":      &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"content":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"parentId":    &graphql.ArgumentConfig{Type: graphql.ID},
+				"attachments": &graphql.ArgumentConfig{Type: graphql.NewList(t.CommentAttachmentInputType)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				taskID, err := parseID(p.Args["taskId"])
+				if err != nil {
+					return nil, err
+				}
+
+				if _, err := repos.Task.FindByID(p.Context, taskID); err != nil {
+					return nil, errors.New("task not found")
+				}
+
+				comment := models.TaskComment{
+					TaskID:   taskID,
+					UserKode: claims.Kodeku,
+					Content:  p.Args["content"].(string),
+				}
+				if v, ok := p.Args["parentId"]; ok && v != nil {
+					pid, err := parseID(v)
+					if err == nil {
+						comment.ParentID = &pid
+					}
+				}
+				if err := repos.Comment.Create(p.Context, &comment); err != nil {
+					return nil, err
+				}
+
+				if attachments, ok := p.Args["attachments"].([]interface{}); ok {
+					for i, raw := range attachments {
+						if i >= 3 {
+							break
+						}
+						a := raw.(map[string]interface{})
+						size := 0
+						if v, ok := a["sizeBytes"]; ok && v != nil {
+							size = v.(int)
+						}
+						fileType := ""
+						if v, ok := a["fileType"]; ok && v != nil {
+							fileType = v.(string)
+						}
+						att := models.CommentAttachment{
+							CommentID: comment.ID,
+							URL:       a["url"].(string),
+							FileName:  a["fileName"].(string),
+							FileType:  fileType,
+							SizeBytes: int64(size),
+						}
+						repos.Comment.CreateAttachment(p.Context, &att)
+					}
+				}
+
+				created, err := repos.Comment.FindByID(p.Context, comment.ID)
+				if err != nil {
+					return nil, err
+				}
+				return formatComment(*created, claims.Kodeku), nil
+			},
+		},
+
+		"toggleReaction": &graphql.Field{
+			Type: t.TaskCommentType,
+			Args: graphql.FieldConfigArgument{
+				"commentId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"emoji":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				commentID, err := parseID(p.Args["commentId"])
+				if err != nil {
+					return nil, err
+				}
+				emoji := p.Args["emoji"].(string)
+
+				if err := repos.Reaction.Toggle(p.Context, commentID, claims.Kodeku, emoji); err != nil {
+					return nil, err
+				}
+
+				comment, err := repos.Comment.FindByID(p.Context, commentID)
+				if err != nil {
+					return nil, err
+				}
+				return formatComment(*comment, claims.Kodeku), nil
+			},
+		},
+
+		"setTaskMeta": &graphql.Field{
+			Type: t.TaskMetaType,
+			Args: graphql.FieldConfigArgument{
+				"taskId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"key":    &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"value":  &graphql.ArgumentConfig{Type: graphql.String},
+				"type":   &graphql.ArgumentConfig{Type: t.MetaTypeEnum},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				taskID, err := parseID(p.Args["taskId"])
+				if err != nil {
+					return nil, err
+				}
+				if _, err := repos.Task.FindOwned(p.Context, taskID, claims.Kodeku); err != nil {
+					return nil, err
+				}
+
+				key := p.Args["key"].(string)
+				value := strVal(p.Args["value"])
+				metaType := models.MetaTypeText
+				if v, ok := p.Args["type"]; ok && v != nil {
+					metaType = v.(models.MetaType)
+				}
+
+				if metaType == models.MetaTypeFile || metaType == models.MetaTypeImage {
+					movedUrl, err := cloudinaryup.MoveAssetIdToPublicFolder(p.Context, value)
+					if err == nil {
+						value = movedUrl
+					}
+				}
+
+				meta, err := repos.Meta.Upsert(p.Context, taskID, key, value, metaType)
+				if err != nil {
+					return nil, err
+				}
+				return formatMeta(*meta), nil
+			},
+		},
+
+		"deleteTaskMeta": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				id, err := parseID(p.Args["id"])
+				if err != nil {
+					return nil, err
+				}
+				deleted, err := repos.Meta.Delete(p.Context, id, claims.Kodeku)
+				if err != nil {
+					return nil, err
+				}
+				return deleted, nil
+			},
+		},
+
+		"reorderTaskMeta": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"taskId":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"orderedIds": &graphql.ArgumentConfig{Type: graphql.NewList(graphql.NewNonNull(graphql.ID))},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				taskID, err := parseID(p.Args["taskId"])
+				if err != nil {
+					return nil, err
+				}
+				if _, err := repos.Task.FindOwned(p.Context, taskID, claims.Kodeku); err != nil {
+					return false, err
+				}
+
+				idsRaw, _ := p.Args["orderedIds"].([]interface{})
+				orderedIDs := make([]uint, 0, len(idsRaw))
+				for _, raw := range idsRaw {
+					id, err := parseID(raw)
+					if err == nil {
+						orderedIDs = append(orderedIDs, id)
+					}
+				}
+				if err := repos.Meta.Reorder(p.Context, taskID, orderedIDs); err != nil {
+					return false, err
+				}
+				return true, nil
+			},
+		},
+
+		"askDora": &graphql.Field{
+			Type: t.DoraResponseType,
+			Args: graphql.FieldConfigArgument{
+				"message": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"history": &graphql.ArgumentConfig{Type: graphql.NewList(t.DoraMessageInputType)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+
+				isLeader := false
+				jabatanNama := ""
+				var teamMembers []ai.TeamMember
+
+				if pegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, claims.PegawaiKode); err == nil {
+					isLeader = pegawai.StatusLeader == 1
+					if pegawai.Jabatan != nil {
+						jabatanNama = pegawai.Jabatan.Nama
+					}
+				}
+
+				// Selalu ambil daftar rekan kerja (untuk keperluan informasi/read-only),
+				// terlepas dari status leader. Otorisasi assign tetap dijaga ketat di resolver createTask.
+				if members, err := repos.Pegawai.FindByDivisi(p.Context, claims.ExternalToken, claims.KodeDivisi); err == nil {
+					for _, m := range members {
+						if m.Kode != claims.PegawaiKode {
+							teamMembers = append(teamMembers, ai.TeamMember{Kodeku: strconv.Itoa(m.Kode), Nama: m.Nama})
+						}
+					}
+				}
+
+				systemPrompt := ai.BuildSystemPrompt(ai.UserContext{
+					Kodeku:     claims.Kodeku,
+					Nama:       claims.Fullname,
+					Jabatan:    jabatanNama,
+					DivisiNama: claims.NamaDivisi,
+					IsLeader:   isLeader,
+				}, teamMembers)
+
+				today := time.Now().Format("2006-01-02")
+				messages := []ai.ChatMessage{
+					{Role: "system", Content: systemPrompt},
+					{Role: "system", Content: fmt.Sprintf("Tanggal hari ini adalah %s. Gunakan ini untuk menghitung rentang waktu relatif seperti '1 bulan terakhir'.", today)},
+				}
+
+				if historyRaw, ok := p.Args["history"].([]interface{}); ok {
+					for _, raw := range historyRaw {
+						h := raw.(map[string]interface{})
+						messages = append(messages, ai.ChatMessage{
+							Role:    h["role"].(string),
+							Content: h["content"].(string),
+						})
+					}
+				}
+				messages = append(messages, ai.ChatMessage{Role: "user", Content: p.Args["message"].(string)})
+
+				rawReply, err := aiClient.Complete(p.Context, messages)
+				if err != nil {
+					return nil, fmt.Errorf("Dora sedang tidak bisa merespons, coba lagi sebentar lagi")
+				}
+
+				cleanReply, action := ai.ExtractAction(rawReply)
+
+				result := map[string]interface{}{"reply": cleanReply}
+				if action != nil && action.Type == "create_task" {
+					targetKode := action.TargetUserKode
+					if targetKode == "null" || targetKode == "" {
+						targetKode = ""
+					}
+					result := map[string]interface{}{"reply": cleanReply}
+					if action != nil {
+						suggested := map[string]interface{}{
+							"type":           action.Type,
+							"title":          action.Title,
+							"description":    action.Description,
+							"targetUserKode": action.TargetUserKode,
+						}
+						if action.Type == "generate_report" {
+							suggested["startDate"] = action.StartDate
+							suggested["endDate"] = action.EndDate
+						}
+						result["suggestedAction"] = suggested
+					}
+
+				}
+
+				if action != nil {
+					suggested := map[string]interface{}{
+						"type":           action.Type,
+						"title":          action.Title,
+						"description":    action.Description,
+						"targetUserKode": action.TargetUserKode,
+					}
+					if action.Type == "generate_report" {
+						suggested["startDate"] = action.StartDate
+						suggested["endDate"] = action.EndDate
+					}
+					result["suggestedAction"] = suggested
+				}
+				return result, nil
+			},
+		},
+		"createProject": &graphql.Field{
+			Type: t.ProjectType,
+			Args: graphql.FieldConfigArgument{
+				"name":        &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"description": &graphql.ArgumentConfig{Type: graphql.String},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+
+				actor, err := buildActorContext(p.Context, repos, claims)
+				if err != nil {
+					return nil, err
+				}
+
+				if !projectPolicy.CanCreateProject(actor) {
+
+					return nil, errors.New("hanya leader divisi yang bisa membuat project")
+				}
+
+				project := models.Project{
+					Name:            p.Args["name"].(string),
+					Description:     strVal(p.Args["description"]),
+					OwnerDivisiKode: actor.DivisiKode,
+					Status:          models.ProjectStatusActive,
+					CreatedBy:       claims.Kodeku,
+				}
+				log.Printf("Project yang akan dibuat: %+v", project)
+				if err := repos.Project.Create(p.Context, &project); err != nil {
+					return nil, err
+				}
+
+				if err := repos.Project.AddLeader(p.Context, project.ID, claims.Kodeku, claims.Kodeku); err != nil {
+					return nil, err
+				}
+				repos.Project.AddDivision(p.Context, project.ID, actor.DivisiKode, claims.Kodeku)
+
+				return formatProject(project), nil
+			},
+		},
+
+		"inviteDivisionToProject": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"projectId":  &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"divisiKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, err := buildActorContext(p.Context, repos, claims)
+				if err != nil {
+					return nil, err
+				}
+
+				projectID, _ := parseID(p.Args["projectId"])
+				allowed, err := projectPolicy.CanInviteDivision(p.Context, actor, projectID)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					return nil, errors.New("kamu tidak punya izin mengundang divisi ke project ini")
+				}
+
+				divisiKode := p.Args["divisiKode"].(int)
+				if err := repos.Project.AddDivision(p.Context, projectID, divisiKode, claims.Kodeku); err != nil {
+					return nil, err
+				}
+				return true, nil
+			},
+		},
+
+		"createProjectTask": &graphql.Field{
+			Type: t.TaskType,
+			Args: graphql.FieldConfigArgument{
+				"projectId":      &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"title":          &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"description":    &graphql.ArgumentConfig{Type: graphql.String},
+				"targetUserKode": &graphql.ArgumentConfig{Type: graphql.String},
+				"startDate":      &graphql.ArgumentConfig{Type: graphql.String},
+				"dueDate":        &graphql.ArgumentConfig{Type: graphql.String},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, err := buildActorContext(p.Context, repos, claims)
+				if err != nil {
+					return nil, err
+				}
+
+				projectID, _ := parseID(p.Args["projectId"])
+				canCreate, err := projectPolicy.CanCreateTaskInProject(p.Context, actor, projectID)
+				if err != nil {
+					return nil, err
+				}
+				if !canCreate {
+					return nil, errors.New("divisimu tidak tergabung dalam project ini")
+				}
+
+				targetUserKode := claims.Kodeku
+				if v, ok := p.Args["targetUserKode"].(string); ok && v != "" && v != claims.Kodeku {
+					targetPegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, actor.DivisiKode, mustAtoi(v))
+					if err != nil {
+						return nil, errors.New("pegawai tujuan tidak ditemukan")
+					}
+					allowed, err := projectPolicy.CanAssignTaskTo(p.Context, actor, projectID, targetPegawai.KodeDivisi)
+					if err != nil || !allowed {
+						return nil, errors.New("kamu tidak berhak menugaskan task ke pegawai ini dalam project ini")
+					}
+					targetUserKode = v
+				}
+
+				task := models.Task{
+					Title:       p.Args["title"].(string),
+					Description: strVal(p.Args["description"]),
+					Status:      models.TaskStatusPending,
+					UserKode:    targetUserKode,
+					CreatedBy:   claims.Kodeku,
+					StartDate:   parseDatePtr(p.Args["startDate"]),
+					DueDate:     parseDatePtr(p.Args["dueDate"]),
+				}
+				if err := repos.Task.Create(p.Context, &task); err != nil {
+					return nil, err
+				}
+				if err := repos.Project.AttachTask(p.Context, projectID, task.ID); err != nil {
+					return nil, err
+				}
+
+				return formatTask(task, claims.Kodeku), nil
+			},
+		},
+
+		"reassignProjectTask": &graphql.Field{
+			Type: t.TaskType,
+			Args: graphql.FieldConfigArgument{
+				"taskId":         &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"targetUserKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, err := buildActorContext(p.Context, repos, claims)
+				if err != nil {
+					return nil, err
+				}
+
+				taskID, _ := parseID(p.Args["taskId"])
+				projectID, err := repos.Project.ProjectIDForTask(p.Context, taskID)
+				if err != nil {
+					return nil, err
+				}
+				if projectID == nil {
+					return nil, errors.New("task ini tidak terhubung ke project manapun")
+				}
+
+				targetKode := p.Args["targetUserKode"].(string)
+				targetPegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, actor.DivisiKode, mustAtoi(targetKode))
+				if err != nil {
+					return nil, errors.New("pegawai tujuan tidak ditemukan")
+				}
+
+				allowed, err := projectPolicy.CanAssignTaskTo(p.Context, actor, *projectID, targetPegawai.KodeDivisi)
+				if err != nil || !allowed {
+					return nil, errors.New("kamu tidak berhak memindahkan task ini")
+				}
+
+				task, err := repos.Task.FindByID(p.Context, taskID)
+				if err != nil {
+					return nil, err
+				}
+				task.UserKode = targetKode
+				if err := repos.Task.Save(p.Context, task); err != nil {
+					return nil, err
+				}
+
+				return formatTask(*task, claims.Kodeku), nil
+			},
+		},
+
+		"removeDivisionFromProject": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"projectId":  &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"divisiKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, _ := buildActorContext(p.Context, repos, claims)
+				projectID, _ := parseID(p.Args["projectId"])
+
+				allowed, err := projectPolicy.CanRemoveDivision(p.Context, actor, projectID)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					return nil, errors.New("kamu tidak punya izin mengeluarkan divisi dari project ini")
+				}
+				divisiKode := p.Args["divisiKode"].(int)
+				if err := repos.Project.RemoveDivision(p.Context, projectID, divisiKode); err != nil {
+					return nil, err
+				}
+				return true, nil
+			},
+		},
+
+		"addProjectLeader": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"projectId":   &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"pegawaiKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, _ := buildActorContext(p.Context, repos, claims)
+				projectID, _ := parseID(p.Args["projectId"])
+
+				allowed, err := projectPolicy.CanManageProjectLeaders(p.Context, actor, projectID)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					return nil, errors.New("hanya project leader yang bisa menambah project leader lain")
+				}
+				if err := repos.Project.AddLeader(p.Context, projectID, p.Args["pegawaiKode"].(string), claims.Kodeku); err != nil {
+					return nil, err
+				}
+				return true, nil
+			},
+		},
+
+		"removeProjectLeader": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"projectId":   &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"pegawaiKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				claims, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				actor, _ := buildActorContext(p.Context, repos, claims)
+				projectID, _ := parseID(p.Args["projectId"])
+
+				allowed, err := projectPolicy.CanManageProjectLeaders(p.Context, actor, projectID)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					return nil, errors.New("hanya project leader yang bisa menghapus project leader")
+				}
+				if err := repos.Project.RemoveLeader(p.Context, projectID, p.Args["pegawaiKode"].(string)); err != nil {
+					return nil, err
+				}
+				return true, nil
+			},
+		},
+	}
+}

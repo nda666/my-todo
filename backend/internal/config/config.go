@@ -8,28 +8,42 @@ import (
 )
 
 type Config struct {
-	DBConnection string
-	DBHost       string
-	DBPort       string
-	DBDatabase   string
-	DBUsername   string
-	DBPassword   string
-	JWTSecret    string
-	ServerPort   string
+	DBConnection       string
+	DBHost             string
+	DBPort             string
+	DBDatabase         string
+	DBUsername         string
+	DBPassword         string
+	JWTSecret          string
+	ServerPort         string
+	DoranAPIKey        string
+	DoranAuthBaseURL   string
+	DoranOfficeBaseURL string
+	NimAPIKey          string
+	NimModel           string
+	OpenRouterAPIKey   string
+	OpenRouterModel    string
 }
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		DBConnection: getEnv("DB_CONNECTION", "mysql"),
-		DBHost:       getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:       getEnv("DB_PORT", "3306"),
-		DBDatabase:   getEnv("DB_DATABASE", ""),
-		DBUsername:   getEnv("DB_USERNAME", ""),
-		DBPassword:   getEnv("DB_PASSWORD", ""),
-		JWTSecret:    getEnv("JWT_SECRET", "dev-secret"),
-		ServerPort:   getEnv("SERVER_PORT", "8080"),
+		DBConnection:       getEnv("DB_CONNECTION", "mysql"),
+		DBHost:             getEnv("DB_HOST", "127.0.0.1"),
+		DBPort:             getEnv("DB_PORT", "3306"),
+		DBDatabase:         getEnv("DB_DATABASE", ""),
+		DBUsername:         getEnv("DB_USERNAME", ""),
+		DBPassword:         getEnv("DB_PASSWORD", ""),
+		JWTSecret:          getEnv("JWT_SECRET", "dev-secret"),
+		ServerPort:         getEnv("SERVER_PORT", "8080"),
+		NimAPIKey:          getEnv("NVIDIA_NIM_API_KEY", ""),
+		NimModel:           getEnv("NVIDIA_NIM_MODEL", ""),
+		OpenRouterAPIKey:   getEnv("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:    getEnv("OPENROUTER_MODEL", ""),
+		DoranAPIKey:        getEnv("DORAN_API_KEY", "doran_data"),
+		DoranAuthBaseURL:   getEnv("DORAN_AUTH_BASE_URL", "https://api.doran.id/api/doranbackend"),
+		DoranOfficeBaseURL: getEnv("DORAN_OFFICE_BASE_URL", "https://jeoffice.doran.id/api"),
 	}
 
 	if cfg.DBDatabase == "" {

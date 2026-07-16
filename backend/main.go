@@ -5,11 +5,17 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang-todo/internal/auth"
 	"golang-todo/internal/config"
 	"golang-todo/internal/database"
 	"golang-todo/internal/graph"
+	"golang-todo/internal/httpapi"
+	"golang-todo/internal/libs/ai"
+	"golang-todo/internal/libs/cache"
+	"golang-todo/internal/libs/doranapi"
+	"golang-todo/internal/repository"
 
 	"github.com/graphql-go/handler"
 	"github.com/rs/cors"
@@ -26,8 +32,19 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 
-	authService := auth.NewService(db, cfg)
-	schema, err := graph.NewSchema(db, authService)
+	doranClient := doranapi.NewClient(cfg.DoranAPIKey, cfg.DoranAuthBaseURL, cfg.DoranOfficeBaseURL)
+	dataCache := cache.New(15 * time.Minute)
+	repos := repository.NewRepositories(db, doranClient, dataCache)
+	authService := auth.NewService(cfg, doranClient)
+
+	aiClient := &ai.FallbackClient{
+		Primary:   ai.NewNimClient(cfg.NimAPIKey, cfg.NimModel),
+		Secondary: ai.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+	}
+
+	projectPolicy := auth.NewProjectPolicy(repos.Project, repos.Pegawai)
+	schema, err := graph.NewSchema(repos, authService, aiClient, projectPolicy)
+
 	if err != nil {
 		log.Fatalf("graphql schema: %v", err)
 	}
@@ -38,6 +55,8 @@ func main() {
 		GraphiQL: true,
 	})
 
+	http.Handle("/api/upload-avatar", authMiddleware(authService, httpapi.UploadAvatarHandler(repos)))
+	http.Handle("/api/reports/team-summary", authMiddleware(authService, httpapi.GenerateReportHandler(repos, aiClient)))
 	http.Handle("/query", authMiddleware(authService, h))
 
 	c := cors.New(cors.Options{

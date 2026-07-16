@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS `xv_task` (
   `user_kode` varchar(50) NOT NULL,
   `created_at` datetime(3) DEFAULT NULL,
   `updated_at` datetime(3) DEFAULT NULL,
+  `created_by` varchar(50) NOT NULL,
+  KEY `idx_xv_task_created_by` (`created_by`),
   PRIMARY KEY (`id`),
   KEY `idx_xv_task_user_kode` (`user_kode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

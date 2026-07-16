@@ -1,10 +1,25 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { ConfigProvider, theme } from 'antd'
-import { AuthProvider } from './contexts/AuthContext'
-import { ThemeProvider, useTheme } from './contexts/ThemeContext'
-import './index.css'
-import App from './App.jsx'
+import './index.css';
+
+import { StrictMode } from 'react';
+
+import {
+  ConfigProvider,
+  theme,
+} from 'antd';
+import { createRoot } from 'react-dom/client';
+
+import { ApolloProvider } from '@apollo/client';
+
+import App from './App.jsx';
+import { AuthProvider } from './contexts/AuthContext';
+import {
+  ThemeProvider,
+  useTheme,
+} from './contexts/ThemeContext';
+import {
+  apolloClient,
+  initPersistedCache,
+} from './lib/apolloClient';
 
 function AppWithAntdTheme() {
   const { resolvedTheme } = useTheme()
@@ -20,17 +35,21 @@ function AppWithAntdTheme() {
         },
       }}
     >
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ApolloProvider client={apolloClient}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ApolloProvider>
     </ConfigProvider>
   )
 }
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ThemeProvider>
-      <AppWithAntdTheme />
-    </ThemeProvider>
-  </StrictMode>,
-)
+initPersistedCache().then(() => {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <ThemeProvider>
+        <AppWithAntdTheme />
+      </ThemeProvider>
+    </StrictMode>,
+  )
+});

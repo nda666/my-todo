@@ -1,84 +1,392 @@
-export const ME = `
-  query Me {
-    me {
-      kodeku
-      username
-      pegawai {
+import { gql } from "@apollo/client";
+
+// ==========================================
+// FRAGMENTS (Reusable Fields)
+// ==========================================
+
+export const USER_FIELDS = gql`
+  fragment UserFields on User {
+    kodeku
+    username
+    avatarUrl
+    pegawai {
+      kode
+      nama
+      kodejabatan
+      kodedivisi
+      statusLeader
+      jabatan {
         kode
         nama
-        kodejabatan
-        kodedivisi
-        jabatan { kode nama }
-        divisi { kode nama }
+      }
+      divisi {
+        kode
+        nama
       }
     }
   }
-`
+`;
 
-export const LOGIN = `
+export const COMMENT_FIELDS = gql`
+  fragment CommentFields on Comment {
+    id
+    content
+    userKode
+    createdAt
+    parentId
+    reactions {
+      emoji
+      count
+      reacted
+    }
+    attachments {
+      id
+      url
+      fileName
+      fileType
+      sizeBytes
+    }
+  }
+`;
+
+export const TASK_FIELDS = gql`
+  ${COMMENT_FIELDS}
+  fragment TaskFields on Task {
+    id
+    title
+    description
+    status
+    userKode
+    createdBy
+    createdAt
+    updatedAt
+    meta {
+      id
+      key
+      value
+      type
+    }
+    comments {
+      ...CommentFields
+      replies {
+        ...CommentFields
+      }
+    }
+  }
+`;
+
+export const PROJECT_FIELDS = gql`
+  fragment ProjectFields on Project {
+    id
+    name
+    description
+    ownerDivisiKode
+    status
+    createdAt
+    divisions
+    leaders
+  }
+`;
+
+// ==========================================
+// QUERIES & MUTATIONS
+// ==========================================
+
+export const ME = gql`
+  ${USER_FIELDS}
+  query Me {
+    me {
+      ...UserFields
+    }
+  }
+`;
+
+export const LOGIN = gql`
+  ${USER_FIELDS}
   mutation Login($username: String!, $password: String!) {
     login(username: $username, password: $password) {
       token
       user {
-        kodeku
-        username
-        pegawai {
-          kode
-          nama
-          kodejabatan
-          kodedivisi
-          jabatan { kode nama }
-          divisi { kode nama }
-        }
+        ...UserFields
       }
     }
   }
-`
+`;
 
-export const GET_TASKS = `
-  query GetTasks {
-    tasks {
-      id title description status createdAt updatedAt
-      comments { id content userKode createdAt }
-      meta { id key value }
+export const GET_TASKS = gql`
+  ${TASK_FIELDS}
+  query GetTasks($limit: Int, $cursor: String, $userKode: String) {
+    tasks(limit: $limit, cursor: $cursor, userKode: $userKode) {
+      tasks {
+        ...TaskFields
+      }
+      nextCursor
+      hasMore
     }
   }
-`
+`;
 
-export const CREATE_TASK = `
+export const GET_COLLEAGUES = gql`
+  query GetColleagues {
+    colleagues {
+      kodeku
+      nama
+      statusLeader
+      avatarUrl
+      jabatan {
+        kode
+        nama
+      }
+    }
+  }
+`;
+
+export const CREATE_TASK = gql`
+  ${TASK_FIELDS}
   mutation CreateTask($input: CreateTaskInput!) {
     createTask(input: $input) {
-      id title description status createdAt updatedAt
+      ...TaskFields
     }
   }
-`
+`;
 
-export const UPDATE_TASK = `
+export const UPDATE_TASK = gql`
   mutation UpdateTask($id: ID!, $input: UpdateTaskInput!) {
     updateTask(id: $id, input: $input) {
-      id title description status updatedAt
+      id
+      title
+      description
+      status
+      updatedAt
     }
   }
-`
+`;
 
-export const DELETE_TASK = `
+export const DELETE_TASK = gql`
   mutation DeleteTask($id: ID!) {
     deleteTask(id: $id)
   }
-`
+`;
 
-export const ADD_COMMENT = `
-  mutation AddComment($taskId: ID!, $content: String!) {
-    addTaskComment(taskId: $taskId, content: $content) {
-      id content userKode createdAt
+export const ADD_COMMENT = gql`
+  ${COMMENT_FIELDS}
+  mutation AddComment(
+    $taskId: ID!
+    $content: String!
+    $parentId: ID
+    $attachments: [CommentAttachmentInput!]
+  ) {
+    addTaskComment(
+      taskId: $taskId
+      content: $content
+      parentId: $parentId
+      attachments: $attachments
+    ) {
+      ...CommentFields
+      replies {
+        ...CommentFields
+      }
     }
   }
-`
+`;
 
-export const SET_META = `
-  mutation SetMeta($taskId: ID!, $key: String!, $value: String) {
-    setTaskMeta(taskId: $taskId, key: $key, value: $value) {
-      id key value
+export const TOGGLE_REACTION = gql`
+  ${COMMENT_FIELDS}
+  mutation ToggleReaction($commentId: ID!, $emoji: String!) {
+    toggleReaction(commentId: $commentId, emoji: $emoji) {
+      ...CommentFields
+      replies {
+        ...CommentFields
+      }
     }
   }
-`
+`;
+
+export const SET_META = gql`
+  mutation SetMeta(
+    $taskId: ID!
+    $key: String!
+    $value: String
+    $type: MetaType
+  ) {
+    setTaskMeta(taskId: $taskId, key: $key, value: $value, type: $type) {
+      id
+      key
+      value
+      type
+    }
+  }
+`;
+
+export const DELETE_META = gql`
+  mutation DeleteMeta($id: ID!) {
+    deleteTaskMeta(id: $id)
+  }
+`;
+
+export const REORDER_META = gql`
+  mutation ReorderTaskMeta($taskId: ID!, $orderedIds: [ID!]) {
+    reorderTaskMeta(taskId: $taskId, orderedIds: $orderedIds)
+  }
+`;
+
+export const GET_DIVISIONS = gql`
+  query GetDivisions {
+    divisions {
+      kode
+      nama
+    }
+  }
+`;
+
+export const GET_COLLEAGUES_BY_DIVISI = gql`
+  query GetColleaguesByDivisi($divisiKode: Int!) {
+    colleaguesByDivisi(divisiKode: $divisiKode) {
+      kodeku
+      nama
+      statusLeader
+      avatarUrl
+      jabatan {
+        kode
+        nama
+      }
+    }
+  }
+`;
+
+export const GET_TEAMS_SUMMARY = gql`
+  query GetTeamsSummary {
+    teamsSummary {
+      kode
+      nama
+      leaderName
+      memberCount
+      iconKey
+      color
+    }
+  }
+`;
+
+export const ASK_DORA = gql`
+  mutation AskDora($message: String!, $history: [DoraMessageInput!]) {
+    askDora(message: $message, history: $history) {
+      reply
+      suggestedAction {
+        type
+        title
+        description
+        targetUserKode
+        startDate
+        endDate
+      }
+    }
+  }
+`;
+
+export const GET_TEAM_OVERVIEW = gql`
+  query TeamOverview {
+    tasks(limit: 200) {
+      tasks {
+        userKode
+      }
+    }
+  }
+`;
+
+export const GET_PROJECTS = gql`
+  ${PROJECT_FIELDS}
+  query GetProjects {
+    projects {
+      ...ProjectFields
+    }
+  }
+`;
+
+export const GET_PROJECT = gql`
+  ${PROJECT_FIELDS}
+  query GetProject($id: ID!) {
+    project(id: $id) {
+      ...ProjectFields
+    }
+  }
+`;
+
+export const GET_PROJECT_TASKS = gql`
+  ${TASK_FIELDS}
+  query GetProjectTasks($projectId: ID!, $limit: Int, $cursor: String) {
+    projectTasks(projectId: $projectId, limit: $limit, cursor: $cursor) {
+      tasks {
+        ...TaskFields
+      }
+      nextCursor
+      hasMore
+    }
+  }
+`;
+
+export const CREATE_PROJECT = gql`
+  ${PROJECT_FIELDS}
+  mutation CreateProject($name: String!, $description: String) {
+    createProject(name: $name, description: $description) {
+      ...ProjectFields
+    }
+  }
+`;
+
+export const INVITE_DIVISION = gql`
+  mutation InviteDivision($projectId: ID!, $divisiKode: Int!) {
+    inviteDivisionToProject(projectId: $projectId, divisiKode: $divisiKode)
+  }
+`;
+
+export const REMOVE_DIVISION = gql`
+  mutation RemoveDivision($projectId: ID!, $divisiKode: Int!) {
+    removeDivisionFromProject(projectId: $projectId, divisiKode: $divisiKode)
+  }
+`;
+
+export const ADD_PROJECT_LEADER = gql`
+  mutation AddProjectLeader($projectId: ID!, $pegawaiKode: String!) {
+    addProjectLeader(projectId: $projectId, pegawaiKode: $pegawaiKode)
+  }
+`;
+
+export const REMOVE_PROJECT_LEADER = gql`
+  mutation RemoveProjectLeader($projectId: ID!, $pegawaiKode: String!) {
+    removeProjectLeader(projectId: $projectId, pegawaiKode: $pegawaiKode)
+  }
+`;
+
+export const CREATE_PROJECT_TASK = gql`
+  mutation CreateProjectTask(
+    $projectId: ID!
+    $title: String!
+    $description: String
+    $targetUserKode: String
+    $startDate: String
+    $dueDate: String
+  ) {
+    createProjectTask(
+      projectId: $projectId
+      title: $title
+      description: $description
+      targetUserKode: $targetUserKode
+      startDate: $startDate
+      dueDate: $dueDate
+    ) {
+      id
+      title
+      status
+      userKode
+    }
+  }
+`;
+
+export const REASSIGN_PROJECT_TASK = gql`
+  mutation ReassignProjectTask($taskId: ID!, $targetUserKode: String!) {
+    reassignProjectTask(taskId: $taskId, targetUserKode: $targetUserKode) {
+      id
+      userKode
+    }
+  }
+`;
