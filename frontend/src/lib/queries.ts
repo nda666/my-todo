@@ -240,8 +240,8 @@ export const GET_DIVISIONS = gql`
 `;
 
 export const GET_COLLEAGUES_BY_DIVISI = gql`
-  query GetColleaguesByDivisi($divisiKode: Int!) {
-    colleaguesByDivisi(divisiKode: $divisiKode) {
+  query GetColleaguesByDivisi($divisiKode: Int!, $search: String) {
+    colleaguesByDivisi(divisiKode: $divisiKode, search: $search) {
       kodeku
       nama
       statusLeader

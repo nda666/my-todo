@@ -1,4 +1,5 @@
 import React, {
+    useCallback,
     useEffect,
     useMemo,
     useState,
@@ -25,7 +26,8 @@ import {
 } from '@ant-design/icons';
 import { useQuery } from '@apollo/client';
 
-import TeamLayout from '../layouts/TeamLayout';
+import { useScrollRestoration } from '../contexts/ScrollRestorationContext';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import { GET_COLLEAGUES_BY_DIVISI } from '../lib/queries';
 import { Colleague } from '../types/task';
 
@@ -35,41 +37,37 @@ export default function TeamDivisionMembers() {
     const navigate = useNavigate()
     const { divisiId } = useParams<{ divisiId: string }>()
     const [members, setMembers] = useState<Colleague[]>([])
-    const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(false)
     const [search, setSearch] = useState('')
-
+    const { restoreScroll } = useScrollRestoration();
     const divisiKode = Number(divisiId)
+    const handleBack = useCallback(() => navigate('/teams', { preventScrollReset: true }), [navigate])
+    const headerExtra = useMemo(() => (
+        <Button icon={<TableOutlined />} onClick={() => navigate(`/teams/${divisiKode}/team-board`)}>
+            Lihat Team Board
+        </Button>
+    ), [divisiKode, navigate])
+
 
     const { data, loading: queryLoading } = useQuery(GET_COLLEAGUES_BY_DIVISI, {
-        variables: { divisiKode },
+        variables: { divisiKode, search },
         skip: !divisiKode,
     })
+
+    useTeamHeader({ title: 'Anggota Divisi', onBack: handleBack, headerExtra })
 
     useEffect(() => {
         if (!queryLoading) {
             setMembers(data?.colleaguesByDivisi || [])
             setLoading(false)
+            restoreScroll();
         }
     }, [data, queryLoading])
 
-    const filtered = useMemo(
-        () => members.filter((m) => m.nama.toLowerCase().includes(search.toLowerCase())),
-        [members, search]
-    )
+
 
     return (
-        <TeamLayout
-            title="Anggota Divisi"
-            onBack={() => navigate('/teams', {
-                preventScrollReset: true
-            })}
-            storageKey="teams_sidebar_collapsed"
-            headerExtra={
-                <Button icon={<TableOutlined />} onClick={() => navigate(`/teams/${divisiKode}/team-board`)}>
-                    Lihat Team Board
-                </Button>
-            }
-        >
+        < >
             <Input
                 placeholder="Cari nama pegawai..."
                 prefix={<SearchOutlined className="!text-slate-400" />}
@@ -81,16 +79,18 @@ export default function TeamDivisionMembers() {
 
             {loading ? (
                 <div className="flex justify-center py-20"><Spin size="large" /></div>
-            ) : filtered.length === 0 ? (
+            ) : (members.length === 0 ? (
                 <div className="py-16">
                     <Empty description={<span className="!text-slate-500 dark:!text-slate-400">Tidak ada pegawai yang cocok.</span>} />
                 </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filtered.map((m) => (
+                    {members.map((m) => (
                         <div
                             key={m.kodeku}
-                            onClick={() => navigate(`/teams/${divisiKode}/${m.kodeku}`)}
+                            onClick={() => navigate(`/teams/${divisiKode}/${m.kodeku}`, {
+                                preventScrollReset: true
+                            })}
                             className="group relative cursor-pointer !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-2xl p-5 hover:!border-blue-400 dark:hover:!border-blue-700 hover:shadow-md transition-all duration-150"
                         >
                             {m.statusLeader === 1 && (
@@ -115,7 +115,7 @@ export default function TeamDivisionMembers() {
                         </div>
                     ))}
                 </div>
-            )}
-        </TeamLayout>
+            ))}
+        </>
     )
 }

@@ -29,7 +29,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useInfiniteScrollSentinel } from '../hooks/useInfiniteScrollSentinel';
 import { useInfiniteTasks } from '../hooks/useInfiniteTasks';
 import { useLocalStorageState } from '../hooks/useLocalStorageState';
-import TeamLayout from '../layouts/TeamLayout';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import { CloudinaryUploadResult } from '../lib/cloudinary';
 import {
     ADD_COMMENT,
@@ -60,10 +60,8 @@ export default function PegawaiTasks() {
     const [viewMode, setViewMode] = useLocalStorageState<'card' | 'table'>('task_view_mode', 'card')
     const [statusTab, setStatusTab] = useState<StatusTabKey>('all')
 
-    const isLeader = me?.pegawai?.statusLeader === 1
-    const currentDivisiKode = me?.pegawai?.divisi?.kode || null
+    const handleBack = useCallback(() => navigate(`/teams/${divisiId}`), [navigate, divisiId])
     const isOwnPage = pegawaiId === me?.kodeku
-
     const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(pegawaiId || null)
     const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
 
@@ -114,12 +112,9 @@ export default function PegawaiTasks() {
     const filteredTasks = filterTasksByTab(tasks, statusTab)
     const counts = countTasksByTab(tasks)
 
+    useTeamHeader({ title: isOwnPage ? 'Task Saya' : 'Task Pegawai', onBack: handleBack })
     return (
-        <TeamLayout
-            title={isOwnPage ? 'Task Saya' : 'Task Pegawai'}
-            onBack={() => navigate(`/teams/${divisiId}`)}
-            storageKey="teams_sidebar_collapsed"
-        >
+        <>
             {loading ? (
                 <div className="flex flex-col justify-center items-center py-20 gap-4 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-xl shadow-sm">
                     <Spin size="large" />
@@ -191,6 +186,6 @@ export default function PegawaiTasks() {
                     )}
                 </>
             )}
-        </TeamLayout>
+        </>
     )
 }

@@ -25,32 +25,36 @@ function AppWithAntdTheme() {
   const { resolvedTheme } = useTheme()
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: resolvedTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: {
-          colorPrimary: '#3b82f6',
-          borderRadius: 8,
-          fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
-        },
-      }}
-    >
-      <ApolloProvider client={apolloClient}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </ApolloProvider>
-    </ConfigProvider>
+    <>
+      <ConfigProvider
+        theme={{
+          algorithm: resolvedTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
+          token: {
+            colorPrimary: '#3b82f6',
+            borderRadius: 8,
+            fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+          },
+        }}
+      >
+        <ApolloProvider client={apolloClient}>
+          <AuthProvider>
+
+            <App />
+          </AuthProvider>
+        </ApolloProvider>
+      </ConfigProvider>
+    </>
   )
 }
 
 initPersistedCache().then(() => {
   createRoot(document.getElementById('root')).render(
-    <StrictMode>
-      {/* <ScrollRestoration getKey={(location) => location.pathname} /> */}
-      <ThemeProvider>
-        <AppWithAntdTheme />
-      </ThemeProvider>
-    </StrictMode>,
+    <>
+      <StrictMode>
+
+        <ThemeProvider  >
+          <AppWithAntdTheme />
+        </ThemeProvider >
+      </StrictMode></>,
   )
 });

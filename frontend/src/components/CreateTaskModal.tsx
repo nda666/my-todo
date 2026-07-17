@@ -8,14 +8,13 @@ import {
   Modal,
   Typography,
 } from 'antd';
-import dayjs from 'dayjs';
+import { Dayjs } from 'dayjs';
 
 import { MetaDraft } from '../types/task';
 import TaskMetaEditor from './TaskMetaEditor';
 
 const { Title } = Typography
 const { TextArea } = Input
-const { RangePicker } = DatePicker
 
 interface CreateTaskModalProps {
   open: boolean
@@ -33,23 +32,31 @@ interface CreateTaskModalProps {
 export default function CreateTaskModal({ open, onCancel, onCreate, loading }: CreateTaskModalProps) {
   const [form] = Form.useForm()
   const [metaItems, setMetaItems] = React.useState<MetaDraft[]>([])
+  const [startDate, setStartDate] = React.useState<Dayjs | null>(null)
+  const [dueDate, setDueDate] = React.useState<Dayjs | null>(null)
 
-  const handleFinish = async (values: { title: string; description?: string; dateRange?: [dayjs.Dayjs, dayjs.Dayjs] }) => {
+  const resetLocalState = () => {
+    setMetaItems([])
+    setStartDate(null)
+    setDueDate(null)
+  }
+
+  const handleFinish = async (values: { title: string; description?: string }) => {
     await onCreate({
       title: values.title,
       description: values.description,
       meta: metaItems,
-      startDate: values.dateRange?.[0]?.format('YYYY-MM-DD'),
-      dueDate: values.dateRange?.[1]?.format('YYYY-MM-DD'),
+      startDate: startDate?.format('YYYY-MM-DD'),
+      dueDate: dueDate?.format('YYYY-MM-DD'),
     })
     form.resetFields()
-    setMetaItems([])
+    resetLocalState()
   }
 
   const handleCancel = () => {
     onCancel()
     form.resetFields()
-    setMetaItems([])
+    resetLocalState()
   }
 
   return (
@@ -68,9 +75,35 @@ export default function CreateTaskModal({ open, onCancel, onCreate, loading }: C
         <Form.Item name="description" label="Deskripsi">
           <TextArea rows={3} placeholder="Masukkan deskripsi tugas secara detail..." className="rounded-lg" />
         </Form.Item>
-        <Form.Item name="dateRange" label="Rentang Waktu (opsional)">
-          <RangePicker className="w-full" format="DD/MM/YYYY" placeholder={['Mulai', 'Target Selesai']} />
-        </Form.Item>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Form.Item label="Tanggal Mulai (opsional)">
+            <DatePicker
+              className="w-full"
+              format="DD/MM/YYYY"
+              placeholder="Mulai"
+              value={startDate}
+              onChange={(date) => {
+                setStartDate(date)
+                // kalau start baru digeser lewat due yang sudah ada, geser due-nya juga
+                if (date && dueDate && date.isAfter(dueDate, 'day')) {
+                  setDueDate(null)
+                }
+              }}
+              disabledDate={(current) => !!dueDate && !!current && current.isAfter(dueDate, 'day')}
+            />
+          </Form.Item>
+          <Form.Item label="Target Selesai (opsional)">
+            <DatePicker
+              className="w-full"
+              format="DD/MM/YYYY"
+              placeholder="Target selesai"
+              value={dueDate}
+              onChange={setDueDate}
+              disabledDate={(current) => !!startDate && !!current && current.isBefore(startDate, 'day')}
+            />
+          </Form.Item>
+        </div>
 
         <div className="mb-4">
           <TaskMetaEditor items={metaItems} onChange={setMetaItems} />

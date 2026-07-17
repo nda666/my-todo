@@ -1,4 +1,5 @@
 import React, {
+    useCallback,
     useEffect,
     useMemo,
     useState,
@@ -21,7 +22,7 @@ import {
 import { useQuery } from '@apollo/client';
 
 import { getDivisionIcon } from '../constants/divisionIcons';
-import TeamLayout from '../layouts/TeamLayout';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import { GET_TEAMS_SUMMARY } from '../lib/queries';
 import { DivisionSummary } from '../types/task';
 
@@ -34,6 +35,8 @@ export default function Teams() {
     })
 
     const navigate = useNavigate()
+    const handleBack = useCallback(() => navigate('/', { preventScrollReset: true }), [navigate])
+    useTeamHeader({ title: 'Semua Divisi', onBack: handleBack })
     const [divisions, setDivisions] = useState<DivisionSummary[]>(data?.teamsSummary ??
         previousData?.teamsSummary ??
         [])
@@ -53,7 +56,7 @@ export default function Teams() {
     )
 
     return (
-        <TeamLayout title="Semua Divisi" onBack={() => navigate('/', { preventScrollReset: true })} storageKey="teams_sidebar_collapsed">
+        <>
             <Input
                 placeholder="Cari nama divisi..."
                 prefix={<SearchOutlined className="!text-slate-400" />}
@@ -112,7 +115,7 @@ export default function Teams() {
                     ))}
                 </div>
             )}
-        </TeamLayout>
+        </>
     )
 }
 

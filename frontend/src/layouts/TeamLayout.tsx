@@ -1,4 +1,9 @@
-import React from 'react';
+import React, {
+    createContext,
+    useCallback,
+    useContext,
+    useState,
+} from 'react';
 
 import {
     Button,
@@ -6,7 +11,10 @@ import {
     Layout,
     Typography,
 } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import {
+    Outlet,
+    useNavigate,
+} from 'react-router-dom';
 
 import {
     ArrowLeftOutlined,
@@ -25,32 +33,56 @@ const { Title } = Typography
 
 const SIDEBAR_WIDTH = 260
 
-interface TeamLayoutProps {
+interface TeamPageHeader {
     title: string
     onBack?: () => void
     headerExtra?: React.ReactNode
+}
+
+interface TeamLayoutContextValue {
+    setPageHeader: (header: TeamPageHeader) => void
+}
+
+const TeamLayoutContext = createContext<TeamLayoutContextValue | null>(null)
+
+/**
+ * Dipanggil dari halaman anak (lewat <Outlet />) untuk mengisi judul/tombol back/
+ * aksi kanan di header TeamLayout tanpa perlu membungkus dirinya sendiri dengan layout.
+ *
+ * PENTING: `onBack` dan `headerExtra` sebaiknya di-memoize (useCallback/useMemo) di
+ * pemanggil, supaya effect ini tidak jalan ulang di setiap render halaman.
+ */
+export function useTeamHeader(header: TeamPageHeader) {
+    const ctx = useContext(TeamLayoutContext)
+    if (!ctx) {
+        throw new Error('useTeamHeader harus dipanggil di dalam route TeamLayout')
+    }
+    const { title, onBack, headerExtra } = header
+    React.useEffect(() => {
+        ctx.setPageHeader({ title, onBack, headerExtra })
+    }, [title, onBack, headerExtra])
+}
+
+interface TeamLayoutProps {
     wide?: boolean
     storageKey?: string
     defaultCollapsed?: boolean
-    children: React.ReactNode
 }
 
 export default function TeamLayout({
-    title,
-    onBack,
-    headerExtra,
     wide = false,
     storageKey = 'team_sidebar_collapsed',
     defaultCollapsed = false,
-    children,
 }: TeamLayoutProps) {
     const { me, logout } = useAuth()
     const navigate = useNavigate()
     const isMobile = useIsMobile()
     const [collapsed, setCollapsed] = useLocalStorageState<boolean>(storageKey, defaultCollapsed)
-    const [mobileOpen, setMobileOpen] = React.useState(false)
+    const [mobileOpen, setMobileOpen] = useState(false)
+    const [pageHeader, setPageHeader] = useState<TeamPageHeader>({ title: '' })
 
     const currentDivisiKode = me?.pegawai?.divisi?.kode || null
+    // useScrollRestoration()
 
     const handleLogout = () => {
         logout()
@@ -64,6 +96,9 @@ export default function TeamLayout({
             setCollapsed(!collapsed)
         }
     }
+
+    // Referensi stabil - jadi value context tidak berubah antar render TeamLayout sendiri
+    const setPageHeaderStable = useCallback((h: TeamPageHeader) => setPageHeader(h), [])
 
     return (
         <Layout className="!min-h-screen !bg-slate-50 dark:!bg-slate-950">
@@ -112,19 +147,23 @@ export default function TeamLayout({
                             onClick={toggleSidebar}
                             className="text-lg w-10 h-10 flex items-center justify-center !bg-slate-50 dark:!bg-slate-950 !border !border-slate-100 dark:!border-slate-800 rounded-lg shrink-0"
                         />
-                        {onBack && <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack} className="shrink-0" />}
+                        {pageHeader.onBack && (
+                            <Button type="text" icon={<ArrowLeftOutlined />} onClick={pageHeader.onBack} className="shrink-0" />
+                        )}
                         <Title level={4} className="!mb-0 font-bold tracking-tight !text-slate-800 dark:!text-slate-100 truncate">
-                            {title}
+                            {pageHeader.title}
                         </Title>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                        {headerExtra}
+                        {pageHeader.headerExtra}
                         <ThemeSelector size="small" />
                     </div>
                 </Header>
 
                 <Content className={wide ? 'p-3 sm:p-6 flex flex-col' : 'flex flex-col max-w-5xl w-full mx-auto p-3 sm:p-6'}>
-                    {children}
+                    <TeamLayoutContext.Provider value={{ setPageHeader: setPageHeaderStable }}>
+                        <Outlet />
+                    </TeamLayoutContext.Provider>
                 </Content>
             </Layout>
         </Layout>

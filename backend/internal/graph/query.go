@@ -223,6 +223,7 @@ func queryFields(repos *repository.Repositories, t *Types) graphql.Fields {
 			Type: graphql.NewList(graphql.NewNonNull(t.ColleagueType)),
 			Args: graphql.FieldConfigArgument{
 				"divisiKode": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+				"search":     &graphql.ArgumentConfig{Type: graphql.String},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				claims, err := auth.RequireUser(p.Context)
@@ -230,7 +231,12 @@ func queryFields(repos *repository.Repositories, t *Types) graphql.Fields {
 					return nil, err
 				}
 				divisiKode := p.Args["divisiKode"].(int)
-				members, err := repos.Pegawai.FindByDivisi(p.Context, claims.ExternalToken, divisiKode)
+				var search *string
+				if v, ok := p.Args["search"]; ok {
+					s := v.(string)
+					search = &s
+				}
+				members, err := repos.Pegawai.FindByDivisiAndSearchName(p.Context, claims.ExternalToken, divisiKode, search)
 				if err != nil {
 					return nil, err
 				}

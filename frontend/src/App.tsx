@@ -9,6 +9,8 @@ import {
 
 import DoraWidget from './components/DoraWidget';
 import { useAuth } from './contexts/AuthContext';
+import { ScrollRestorationProvider } from './contexts/ScrollRestorationContext';
+import TeamLayout from './layouts/TeamLayout';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import PegawaiTasks from './pages/PegawaiTasks';
@@ -41,6 +43,16 @@ function DoraWidgetGate() {
   return <DoraWidget />
 }
 
+// Satu instance TeamLayout dipakai bareng oleh semua route di dalamnya (lewat <Outlet />),
+// jadi sidebar + header tidak remount pas pindah halaman - ini yang bikin preventScrollReset kepakai.
+function PrivateTeamLayout(props: { wide?: boolean; storageKey?: string; defaultCollapsed?: boolean }) {
+  return (
+    <PrivateRoute>
+      <TeamLayout {...props} />
+    </PrivateRoute>
+  )
+}
+
 function AppRoutes() {
   const location = useLocation()
   const state = location.state as { backgroundLocation?: Location } | null
@@ -51,13 +63,19 @@ function AppRoutes() {
       <Routes location={mainLocation}>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/projects" element={<PrivateRoute><Projects /></PrivateRoute>} />
-        <Route path="/projects/:projectId" element={<PrivateRoute><ProjectDetail /></PrivateRoute>} />
-        <Route path="/teams" element={<PrivateRoute><Teams /></PrivateRoute>} />
-        <Route path="/teams/:divisiId" element={<PrivateRoute><TeamDivisionMembers /></PrivateRoute>} />
-        <Route path="/teams/:divisiId/team-board" element={<PrivateRoute><TeamBoard /></PrivateRoute>} />
-        <Route path="/teams/:divisiId/:pegawaiId" element={<PrivateRoute><PegawaiTasks /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+
+        <Route element={<PrivateTeamLayout storageKey="teams_sidebar_collapsed" />}>
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+          <Route path="/teams" element={<Teams />} />
+          <Route path="/teams/:divisiId" element={<TeamDivisionMembers />} />
+          <Route path="/teams/:divisiId/:pegawaiId" element={<PegawaiTasks />} />
+        </Route>
+
+        <Route element={<PrivateTeamLayout wide storageKey="teamboard_sidebar_collapsed" defaultCollapsed />}>
+          <Route path="/teams/:divisiId/team-board" element={<TeamBoard />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -70,7 +88,6 @@ function AppRoutes() {
       <PrivateRoute>
         <DoraWidgetGate />
       </PrivateRoute>
-
     </>
   )
 }
@@ -78,8 +95,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-
-      <AppRoutes />
+      <ScrollRestorationProvider>
+        <AppRoutes />
+      </ScrollRestorationProvider>
     </BrowserRouter>
   )
 }

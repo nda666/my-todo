@@ -1,5 +1,7 @@
 import React, {
+    useCallback,
     useEffect,
+    useMemo,
     useState,
 } from 'react';
 
@@ -24,7 +26,7 @@ import {
 
 import CreateProjectModal from '../components/CreateProjectModal';
 import { useAuth } from '../contexts/AuthContext';
-import TeamLayout from '../layouts/TeamLayout';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import {
     CREATE_PROJECT,
     GET_PROJECTS,
@@ -40,10 +42,18 @@ export default function Projects() {
     const [loading, setLoading] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [creating, setCreating] = useState(false)
-    console.log("LELELE", me?.pegawai);
     const isLeader = me?.pegawai?.statusLeader === 1
-
     const { data, loading: queryLoading, refetch } = useQuery(GET_PROJECTS)
+
+    const handleBack = useCallback(() => navigate('/'), [navigate])
+    const headerExtra = useMemo(() => (
+        isLeader ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
+                Buat Project
+            </Button>
+        ) : undefined
+    ), [isLeader])
+    useTeamHeader({ title: 'Project', onBack: handleBack, headerExtra })
 
     useEffect(() => {
         if (!queryLoading) {
@@ -75,18 +85,7 @@ export default function Projects() {
     }
 
     return (
-        <TeamLayout
-            title="Project"
-            onBack={() => navigate('/')}
-            storageKey="teams_sidebar_collapsed"
-            headerExtra={
-                isLeader ? (
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
-                        Buat Project
-                    </Button>
-                ) : undefined
-            }
-        >
+        < >
             {loading ? (
                 <div className="flex justify-center py-20"><Spin size="large" /></div>
             ) : projects.length === 0 ? (
@@ -136,6 +135,6 @@ export default function Projects() {
                 onCreate={handleCreate}
                 loading={creating}
             />
-        </TeamLayout>
+        </>
     )
 }

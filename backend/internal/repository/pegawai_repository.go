@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"golang-todo/internal/libs/cache"
 	"golang-todo/internal/libs/doranapi"
@@ -15,6 +16,7 @@ import (
 type PegawaiRepository interface {
 	FindByDivisi(ctx context.Context, token string, kodeDivisi int) ([]models.Pegawai, error)
 	FindByKode(ctx context.Context, token string, kodeDivisi, kode int) (*models.Pegawai, error)
+	FindByDivisiAndSearchName(ctx context.Context, token string, kodeDivisi int, search *string) ([]models.Pegawai, error)
 }
 
 type pegawaiRepository struct {
@@ -27,7 +29,7 @@ func NewPegawaiRepository(client *doranapi.Client, c *cache.Cache, db *gorm.DB) 
 	return &pegawaiRepository{client: client, cache: c, db: db}
 }
 
-func (r *pegawaiRepository) FindByDivisi(ctx context.Context, token string, kodeDivisi int) ([]models.Pegawai, error) {
+func (r *pegawaiRepository) wrapperFind(ctx context.Context, token string, kodeDivisi int, search *string) ([]models.Pegawai, error) {
 	key := fmt.Sprintf("pegawai:divisi:%d", kodeDivisi)
 	// items, err := r.client.GetAllPegawaiByDivisi(ctx, token, kodeDivisi)
 	items, err := cache.Fetch(ctx, r.cache, key, func(ctx context.Context) ([]doranapi.PegawaiItem, error) {
@@ -37,16 +39,25 @@ func (r *pegawaiRepository) FindByDivisi(ctx context.Context, token string, kode
 		return nil, err
 	}
 
-	result := make([]models.Pegawai, len(items))
-	for i, it := range items {
-		result[i] = models.Pegawai{
+	var keyword string
+	if search != nil {
+		keyword = strings.ToLower(*search)
+	}
+	var result []models.Pegawai
+
+	for _, it := range items {
+		if keyword != "" && !strings.Contains(strings.ToLower(it.Nama), keyword) {
+			continue
+		}
+
+		result = append(result, models.Pegawai{
 			Kode:         it.Kode,
 			Nama:         it.Nama,
 			KodeJabatan:  it.KodeJabatan,
 			KodeDivisi:   it.KodeDivisi,
 			StatusLeader: it.StatusLeader,
 			Jabatan:      &models.Jabatan{Kode: it.KodeJabatan, Nama: it.NamaJabatan},
-		}
+		})
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
@@ -59,8 +70,24 @@ func (r *pegawaiRepository) FindByDivisi(ctx context.Context, token string, kode
 	return result, nil
 }
 
+func (r *pegawaiRepository) FindByDivisiAndSearchName(ctx context.Context, token string, kodeDivisi int, search *string) ([]models.Pegawai, error) {
+	members, err := r.wrapperFind(ctx, token, kodeDivisi, search)
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+func (r *pegawaiRepository) FindByDivisi(ctx context.Context, token string, kodeDivisi int) ([]models.Pegawai, error) {
+	members, err := r.wrapperFind(ctx, token, kodeDivisi, nil)
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
 func (r *pegawaiRepository) FindByKode(ctx context.Context, token string, kodeDivisi, kode int) (*models.Pegawai, error) {
-	members, err := r.FindByDivisi(ctx, token, kodeDivisi)
+	members, err := r.wrapperFind(ctx, token, kodeDivisi, nil)
 	if err != nil {
 		return nil, err
 	}

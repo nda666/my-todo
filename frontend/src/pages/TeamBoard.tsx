@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import {
     Avatar,
@@ -17,7 +17,7 @@ import { useQuery } from '@apollo/client';
 
 import TeamBoardColumn from '../components/TeamBoardColumn';
 import { useAuth } from '../contexts/AuthContext';
-import TeamLayout from '../layouts/TeamLayout';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import { GET_COLLEAGUES_BY_DIVISI } from '../lib/queries';
 
 export default function TeamBoard() {
@@ -26,6 +26,12 @@ export default function TeamBoard() {
     const { divisiId } = useParams<{ divisiId: string }>()
     const divisiKode = Number(divisiId)
 
+    const handleBack = useCallback(
+        () => navigate(`/teams/${divisiKode}`, { preventScrollReset: true }),
+        [navigate, divisiKode]
+    )
+    useTeamHeader({ title: 'Task Tim — Semua Anggota', onBack: handleBack })
+
     const { data, loading } = useQuery(GET_COLLEAGUES_BY_DIVISI, {
         variables: { divisiKode },
         skip: !divisiKode,
@@ -33,15 +39,7 @@ export default function TeamBoard() {
     const members = data?.colleaguesByDivisi || []
 
     return (
-        <TeamLayout
-            title="Task Tim — Semua Anggota"
-            onBack={() => navigate(`/teams/${divisiKode}`, {
-                preventScrollReset: true
-            })}
-            wide
-            storageKey="teamboard_sidebar_collapsed"
-            defaultCollapsed
-        >
+        <>
             {loading ? (
                 <div className="flex justify-center py-20"><Spin size="large" /></div>
             ) : (
@@ -63,6 +61,6 @@ export default function TeamBoard() {
                     ))}
                 </div>
             )}
-        </TeamLayout>
+        </>
     )
 }

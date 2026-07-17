@@ -1,4 +1,5 @@
 import React, {
+    useCallback,
     useEffect,
     useMemo,
     useState,
@@ -35,7 +36,7 @@ import CreateTaskModal from '../components/CreateTaskModal';
 import TaskCard from '../components/TaskCard';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
-import TeamLayout from '../layouts/TeamLayout';
+import { useTeamHeader } from '../layouts/TeamLayout';
 import {
     ADD_COMMENT,
     ADD_PROJECT_LEADER,
@@ -272,25 +273,20 @@ export default function ProjectDetail() {
 
     const canManageTask = (task: any) => task.userKode === me?.kodeku || task.createdBy === me?.kodeku
 
+    const handleBack = useCallback(() => navigate('/projects'), [navigate])
+    const headerExtra = useMemo(() => (
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateTaskOpen(true)}>
+            Buat Task
+        </Button>
+    ), [])
+    useTeamHeader({ title: project?.name || 'Project', onBack: handleBack, headerExtra: project ? headerExtra : undefined })
+
     if (projectLoading || !project) {
-        return (
-            <TeamLayout title="Project" onBack={() => navigate('/projects')} storageKey="teams_sidebar_collapsed">
-                <div className="flex justify-center py-20"><Spin size="large" /></div>
-            </TeamLayout>
-        )
+        return <div className="flex justify-center py-20"><Spin size="large" /></div>
     }
 
     return (
-        <TeamLayout
-            title={project.name}
-            onBack={() => navigate('/projects')}
-            storageKey="teams_sidebar_collapsed"
-            headerExtra={
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsCreateTaskOpen(true)}>
-                    Buat Task
-                </Button>
-            }
-        >
+        < >
             <div className="flex flex-col gap-6">
                 {project.description && (
                     <Text className="text-sm !text-slate-500 dark:!text-slate-400">{project.description}</Text>
@@ -413,6 +409,6 @@ export default function ProjectDetail() {
                 onCreate={handleCreateTask}
                 loading={creatingTask}
             />
-        </TeamLayout>
+        </>
     )
 }
