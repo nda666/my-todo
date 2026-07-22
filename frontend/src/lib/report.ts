@@ -1,13 +1,17 @@
 import { getToken } from "./auth";
 
-export async function downloadTeamReport(startDate: string, endDate: string) {
+export async function downloadTeamReport(
+  startDate: string,
+  endDate: string,
+  styleNotes?: string,
+) {
   const token = getToken();
-  const res = await fetch(
-    `/api/reports/team-summary?start=${startDate}&end=${endDate}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+  const params = new URLSearchParams({ start: startDate, end: endDate });
+  if (styleNotes) params.set("style", styleNotes);
+
+  const res = await fetch(`/api/reports/team-summary?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || "Gagal membuat laporan.");

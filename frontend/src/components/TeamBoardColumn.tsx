@@ -1,12 +1,29 @@
-import React from 'react';
+// frontend/src/components/TeamBoardColumn.tsx
+import React, { useState } from 'react';
 
 import {
+    Collapse,
     Empty,
     message,
     Spin,
 } from 'antd';
 
 import { useMutation } from '@apollo/client';
+import {
+    closestCenter,
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 import { useInfiniteScrollSentinel } from '../hooks/useInfiniteScrollSentinel';
 import { useInfiniteTasks } from '../hooks/useInfiniteTasks';
@@ -15,15 +32,20 @@ import {
     DELETE_META,
     DELETE_TASK,
     REORDER_META,
+    REORDER_TASKS,
     SET_META,
     TOGGLE_REACTION,
     UPDATE_TASK,
 } from '../lib/queries';
-import TeamBoardTaskCard from './TeamBoardTaskCard';
+import { Task } from '../types/task';
+import DragTaskPreview from './DragTaskPreview';
+import SortableTeamBoardTaskCard from './SortableTeamBoardTaskCard';
 
 export default function TeamBoardColumn({ userKode, editable }: { userKode: string; editable: boolean }) {
     const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(userKode)
     const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+    const [draggingTask, setDraggingTask] = useState<Task | null>(null)
 
     const [updateTaskMutation] = useMutation(UPDATE_TASK)
     const [deleteTaskMutation] = useMutation(DELETE_TASK)
@@ -32,6 +54,7 @@ export default function TeamBoardColumn({ userKode, editable }: { userKode: stri
     const [setMetaMutation] = useMutation(SET_META)
     const [deleteMetaMutation] = useMutation(DELETE_META)
     const [reorderMetaMutation] = useMutation(REORDER_META)
+    const [reorderTasksMutation] = useMutation(REORDER_TASKS)
 
     const handleUpdate = (id: string, input: any) => {
         updateTaskMutation({
@@ -79,6 +102,27 @@ export default function TeamBoardColumn({ userKode, editable }: { userKode: stri
         reorderMetaMutation({ variables: { taskId, orderedIds } }).catch((err) => message.error(err.message || 'Gagal mengubah urutan'))
     }
 
+    const activeTasks = tasks.filter((t) => t.status !== 'COMPLETED')
+    const completedTasks = tasks.filter((t) => t.status === 'COMPLETED')
+
+    const handleDragStart = (event: DragStartEvent) => {
+        if (!editable) return
+        setDraggingTask(activeTasks.find((t) => t.id === event.active.id) || null)
+    }
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        setDraggingTask(null)
+        if (!editable) return
+        const { active, over } = event
+        if (!over || active.id === over.id) return
+        const oldIndex = activeTasks.findIndex((t) => t.id === active.id)
+        const newIndex = activeTasks.findIndex((t) => t.id === over.id)
+        if (oldIndex === -1 || newIndex === -1) return
+
+        const orderedIds = arrayMove(activeTasks, oldIndex, newIndex).map((t) => t.id)
+        reorderTasksMutation({ variables: { orderedIds } }).catch((err) => message.error(err.message || 'Gagal mengubah urutan task'))
+    }
+
     if (loading) {
         return <div className="flex justify-center py-10"><Spin /></div>
     }
@@ -93,20 +137,67 @@ export default function TeamBoardColumn({ userKode, editable }: { userKode: stri
 
     return (
         <div className="max-h-[75vh] overflow-y-auto pr-1">
-            {tasks.map((task) => (
-                <TeamBoardTaskCard
-                    key={task.id}
-                    task={task}
-                    editable={editable}
-                    onUpdate={handleUpdate}
-                    onDelete={handleDelete}
-                    onAddComment={handleAddComment}
-                    onToggleReaction={handleToggleReaction}
-                    onSetMeta={handleSetMeta}
-                    onDeleteMeta={handleDeleteMeta}
-                    onReorderMeta={handleReorderMeta}
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragCancel={() => setDraggingTask(null)}
+            >
+                <SortableContext items={activeTasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                    {activeTasks.map((task) => (
+                        <SortableTeamBoardTaskCard
+                            key={task.id}
+                            task={task}
+                            editable={editable}
+                            onUpdate={handleUpdate}
+                            onDelete={handleDelete}
+                            onAddComment={handleAddComment}
+                            onToggleReaction={handleToggleReaction}
+                            onSetMeta={handleSetMeta}
+                            onDeleteMeta={handleDeleteMeta}
+                            onReorderMeta={handleReorderMeta}
+                        />
+                    ))}
+                </SortableContext>
+                <DragOverlay>{draggingTask && <DragTaskPreview task={draggingTask} />}</DragOverlay>
+            </DndContext>
+
+            {completedTasks.length > 0 && (
+                <Collapse
+                    size="small"
+                    className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-xl"
+                    items={[
+                        {
+                            key: 'completed',
+                            label: (
+                                <span className="text-xs font-medium !text-slate-600 dark:!text-slate-300">
+                                    Selesai ({completedTasks.length})
+                                </span>
+                            ),
+                            children: (
+                                <div className="pt-1">
+                                    {completedTasks.map((task) => (
+                                        <SortableTeamBoardTaskCard
+                                            key={task.id}
+                                            task={task}
+                                            editable={false}
+                                            onUpdate={handleUpdate}
+                                            onDelete={handleDelete}
+                                            onAddComment={handleAddComment}
+                                            onToggleReaction={handleToggleReaction}
+                                            onSetMeta={handleSetMeta}
+                                            onDeleteMeta={handleDeleteMeta}
+                                            onReorderMeta={handleReorderMeta}
+                                        />
+                                    ))}
+                                </div>
+                            ),
+                        },
+                    ]}
                 />
-            ))}
+            )}
+
             <div ref={sentinelRef} />
             {loadingMore && <div className="text-center py-3"><Spin size="small" /></div>}
         </div>

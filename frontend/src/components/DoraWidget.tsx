@@ -1,3 +1,4 @@
+// frontend/src/components/DoraWidget.tsx — full file
 import React, {
     useEffect,
     useRef,
@@ -15,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import {
     CheckOutlined,
     CloseOutlined,
+    PlusOutlined,
     RobotOutlined,
     SendOutlined,
 } from '@ant-design/icons';
@@ -22,7 +24,9 @@ import { useMutation } from '@apollo/client';
 
 import {
     ASK_DORA,
+    CREATE_PROJECT,
     CREATE_TASK,
+    INVITE_DIVISION,
 } from '../lib/queries';
 import { downloadTeamReport } from '../lib/report';
 import {
@@ -42,15 +46,40 @@ interface ChatEntry {
 export default function DoraWidget() {
     const [open, setOpen] = useState(false)
     const [messages, setMessages] = useState<ChatEntry[]>([
-        { role: 'assistant', content: 'Hai, aku Dora — asisten Doran Todo. Aku bisa bantu kamu bikin task, cek status, atau jelasin fitur di aplikasi ini. Ada yang bisa dibantu?' },
+        { role: 'assistant', content: 'Hai, aku Dora — asisten Doran Todo. Aku bisa bantu kamu bikin task (satu atau banyak sekaligus), bikin project, cek status, atau jelasin fitur di aplikasi ini. Ada yang bisa dibantu?' },
     ])
     const [downloading, setDownloading] = useState(false)
     const [input, setInput] = useState('')
     const [sending, setSending] = useState(false)
+    const [selectedDivisions, setSelectedDivisions] = useState<Record<number, number[]>>({})
     const scrollRef = useRef<HTMLDivElement>(null)
 
     const [askDoraMutation] = useMutation(ASK_DORA)
-    const [createTaskMutation] = useMutation(CREATE_TASK)
+    const [createTaskMutation] = useMutation(CREATE_TASK, {
+        update(cache, { data }) {
+            const newTask = data.createTask
+            cache.modify({
+                fields: {
+                    tasks(existing = { tasks: [], nextCursor: null, hasMore: false }) {
+                        return { ...existing, tasks: [{ __ref: cache.identify(newTask) }, ...existing.tasks] }
+                    },
+                },
+            })
+        },
+    })
+    const [createProjectMutation] = useMutation(CREATE_PROJECT, {
+        update(cache, { data }) {
+            const newProject = data.createProject
+            cache.modify({
+                fields: {
+                    projects(existing = []) {
+                        return [{ __ref: cache.identify(newProject) }, ...existing]
+                    },
+                },
+            })
+        },
+    })
+    const [inviteDivisionMutation] = useMutation(INVITE_DIVISION)
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -77,11 +106,12 @@ export default function DoraWidget() {
         }
     }
 
+    // frontend/src/components/DoraWidget.tsx — only handleDownloadReport + the generate_report card changed
     const handleDownloadReport = async (action: DoraSuggestedAction) => {
         if (!action.startDate || !action.endDate) return
         setDownloading(true)
         try {
-            await downloadTeamReport(action.startDate, action.endDate)
+            await downloadTeamReport(action.startDate, action.endDate, action.styleNotes)
             message.success('Laporan berhasil diunduh!')
         } catch (err: any) {
             message.error(err.message || 'Gagal membuat laporan')
@@ -106,6 +136,82 @@ export default function DoraWidget() {
             setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, actionHandled: true } : m)))
         } catch (err: any) {
             message.error(err.message || 'Gagal membuat task. Cek lagi apakah kamu punya izin untuk assign ke orang ini.')
+        }
+    }
+
+    const handleConfirmBatchAction = async (index: number, action: DoraSuggestedAction) => {
+        const tasks = action.tasks || []
+        let failed = 0
+        for (const t of tasks) {
+            try {
+                await createTaskMutation({
+                    variables: {
+                        input: {
+                            title: t.title,
+                            description: t.description || null,
+                            ...(t.targetUserKode ? { targetUserKode: t.targetUserKode } : {}),
+                            meta: [],
+                        },
+                    },
+                })
+            } catch {
+                failed++
+            }
+        }
+        if (failed === 0) {
+            message.success(`${tasks.length} task berhasil dibuat!`)
+        } else {
+            message.warning(`${tasks.length - failed} dari ${tasks.length} task berhasil dibuat.`)
+        }
+        setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, actionHandled: true } : m)))
+    }
+
+    const handleConfirmProjectAction = async (index: number, action: DoraSuggestedAction) => {
+        try {
+            const { data } = await createProjectMutation({
+                variables: { name: action.title, description: action.description || null },
+            })
+            const projectId = data.createProject.id
+            for (const divisiKode of action.divisions || []) {
+                try {
+                    await inviteDivisionMutation({ variables: { projectId, divisiKode } })
+                } catch {
+                    // divisi gagal diundang - user bisa undang manual dari halaman project
+                }
+            }
+            message.success('Project berhasil dibuat!')
+            setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, actionHandled: true } : m)))
+        } catch (err: any) {
+            message.error(err.message || 'Gagal membuat project. Pastikan kamu leader divisi.')
+        }
+    }
+
+    const toggleDivisionCandidate = (index: number, kode: number) => {
+        setSelectedDivisions((prev) => {
+            const current = prev[index] || []
+            const next = current.includes(kode) ? current.filter((k) => k !== kode) : [...current, kode]
+            return { ...prev, [index]: next }
+        })
+    }
+
+    const handleConfirmRecommendation = async (index: number, action: DoraSuggestedAction) => {
+        try {
+            const { data } = await createProjectMutation({
+                variables: { name: action.title, description: action.description || null },
+            })
+            const projectId = data.createProject.id
+            const chosen = selectedDivisions[index] || []
+            for (const divisiKode of chosen) {
+                try {
+                    await inviteDivisionMutation({ variables: { projectId, divisiKode } })
+                } catch {
+                    // divisi gagal diundang - user bisa undang manual dari halaman project
+                }
+            }
+            message.success('Project berhasil dibuat!')
+            setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, actionHandled: true } : m)))
+        } catch (err: any) {
+            message.error(err.message || 'Gagal membuat project. Pastikan kamu leader divisi.')
         }
     }
 
@@ -168,14 +274,112 @@ export default function DoraWidget() {
                                         </div>
                                     )}
 
+                                    {m.action && m.action.type === 'create_task_batch' && (
+                                        <div className="mt-2 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-700 rounded-lg p-2.5">
+                                            <div className="text-xs font-semibold !text-slate-700 dark:!text-slate-200 mb-1">
+                                                📋 Usulan {m.action.tasks?.length || 0} Task
+                                            </div>
+                                            <ul className="text-xs !text-slate-500 dark:!text-slate-400 mb-2 pl-4 list-disc">
+                                                {m.action.tasks?.map((t, idx) => (
+                                                    <li key={idx}>{t.title}</li>
+                                                ))}
+                                            </ul>
+                                            {m.actionHandled ? (
+                                                <div className="text-xs !text-emerald-600 flex items-center gap-1">
+                                                    <CheckOutlined /> Task sudah dibuat
+                                                </div>
+                                            ) : (
+                                                <Button size="small" type="primary" onClick={() => handleConfirmBatchAction(i, m.action!)}>
+                                                    Buat Semua Task
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {m.action && m.action.type === 'create_project' && (
+                                        <div className="mt-2 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-700 rounded-lg p-2.5">
+                                            <div className="text-xs font-semibold !text-slate-700 dark:!text-slate-200 mb-0.5">
+                                                🗂️ Usulan Project: {m.action.title}
+                                            </div>
+                                            {m.action.description && (
+                                                <div className="text-xs !text-slate-500 dark:!text-slate-400 mb-1">{m.action.description}</div>
+                                            )}
+                                            {m.actionHandled ? (
+                                                <div className="text-xs !text-emerald-600 flex items-center gap-1">
+                                                    <CheckOutlined /> Project sudah dibuat
+                                                </div>
+                                            ) : (
+                                                <Button size="small" type="primary" onClick={() => handleConfirmProjectAction(i, m.action!)}>
+                                                    Buat Project Ini
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {m.action && m.action.type === 'recommend_divisions' && (
+                                        <div className="mt-2 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-700 rounded-lg p-2.5">
+                                            <div className="text-xs font-semibold !text-slate-700 dark:!text-slate-200 mb-0.5">
+                                                🗂️ Usulan Project: {m.action.title}
+                                            </div>
+                                            {m.action.description && (
+                                                <div className="text-xs !text-slate-500 dark:!text-slate-400 mb-2">{m.action.description}</div>
+                                            )}
+                                            {m.actionHandled ? (
+                                                <div className="text-xs !text-emerald-600 flex items-center gap-1">
+                                                    <CheckOutlined /> Project sudah dibuat
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="text-[11px] font-semibold !text-slate-500 dark:!text-slate-400 uppercase mb-1.5">
+                                                        Rekomendasi Divisi
+                                                    </div>
+                                                    <div className="flex flex-col gap-1.5 mb-2.5">
+                                                        {(m.action.divisionCandidates || []).map((c) => {
+                                                            const selected = (selectedDivisions[i] || []).includes(c.kode)
+                                                            return (
+                                                                <div
+                                                                    key={c.kode}
+                                                                    className="flex items-center justify-between !bg-slate-50 dark:!bg-slate-950 !border !border-slate-100 dark:!border-slate-800 rounded-lg px-2.5 py-1.5"
+                                                                >
+                                                                    <span className="text-xs !text-slate-700 dark:!text-slate-300">{c.nama}</span>
+                                                                    <Button
+                                                                        size="small"
+                                                                        type={selected ? 'primary' : 'default'}
+                                                                        icon={selected ? <CheckOutlined /> : <PlusOutlined />}
+                                                                        onClick={() => toggleDivisionCandidate(i, c.kode)}
+                                                                    >
+                                                                        {selected ? 'Ditambahkan' : 'Tambahkan'}
+                                                                    </Button>
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                    <Button
+                                                        size="small"
+                                                        type="primary"
+                                                        block
+                                                        onClick={() => handleConfirmRecommendation(i, m.action!)}
+                                                    >
+                                                        Buat Project{(selectedDivisions[i]?.length ?? 0) > 0 ? ` & Undang ${selectedDivisions[i].length} Divisi` : ''}
+                                                    </Button>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {m.action && m.action.type === 'generate_report' && (
                                         <div className="mt-2 !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-700 rounded-lg p-2.5">
                                             <div className="text-xs font-semibold !text-slate-700 dark:!text-slate-200 mb-0.5">
                                                 📊 Laporan Progres Tim
                                             </div>
-                                            <div className="text-xs !text-slate-500 dark:!text-slate-400 mb-2">
+                                            <div className="text-xs !text-slate-500 dark:!text-slate-400 mb-1">
                                                 Periode: {m.action.startDate} s/d {m.action.endDate}
                                             </div>
+                                            {m.action.styleNotes && (
+                                                <div className="text-xs !text-slate-500 dark:!text-slate-400 mb-2">
+                                                    Gaya desain: {m.action.styleNotes}
+                                                </div>
+                                            )}
                                             <Button size="small" type="primary" loading={downloading} onClick={() => handleDownloadReport(m.action!)}>
                                                 Download PPTX
                                             </Button>
@@ -214,4 +418,3 @@ export default function DoraWidget() {
         </>
     )
 }
-

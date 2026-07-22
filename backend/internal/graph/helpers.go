@@ -60,6 +60,7 @@ func formatTask(task models.Task, currentUserKode string) map[string]interface{}
 		"completedAt": formatDatePtr(task.CompletedAt), // <-- baru
 		"createdAt":   formatTime(task.CreatedAt),
 		"updatedAt":   formatTime(task.UpdatedAt),
+		"sortOrder":   task.SortOrder,
 		"comments":    comments,
 		"meta":        meta,
 	}

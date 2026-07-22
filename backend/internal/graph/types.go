@@ -15,23 +15,24 @@ var (
 // Types menampung semua GraphQL type supaya bisa dipakai bareng
 // di query.go dan mutation.go tanpa didefinisikan ulang.
 type Types struct {
-	TaskStatusEnum        *graphql.Enum
-	JabatanType           *graphql.Object
-	DivisiType            *graphql.Object
-	DivisionSummaryType   *graphql.Object
-	PegawaiType           *graphql.Object
-	ColleagueType         *graphql.Object
-	UserType              *graphql.Object
-	ProjectType           *graphql.Object
-	TaskMetaType          *graphql.Object
-	TaskCommentType       *graphql.Object
-	TaskType              *graphql.Object
-	TaskConnectionType    *graphql.Object
-	AuthPayloadType       *graphql.Object
-	ReactionSummaryType   *graphql.Object
-	CommentAttachmentType *graphql.Object
-	DoraResponseType      *graphql.Object
-
+	TaskStatusEnum             *graphql.Enum
+	JabatanType                *graphql.Object
+	DivisiType                 *graphql.Object
+	DivisionSummaryType        *graphql.Object
+	PegawaiType                *graphql.Object
+	ColleagueType              *graphql.Object
+	UserType                   *graphql.Object
+	ProjectType                *graphql.Object
+	TaskMetaType               *graphql.Object
+	TaskCommentType            *graphql.Object
+	TaskType                   *graphql.Object
+	TaskConnectionType         *graphql.Object
+	AuthPayloadType            *graphql.Object
+	ReactionSummaryType        *graphql.Object
+	CommentAttachmentType      *graphql.Object
+	DoraResponseType           *graphql.Object
+	DoraTaskItemType           *graphql.Object
+	DoraSuggestedActionType    *graphql.Object
 	CreateTaskInput            *graphql.InputObject
 	UpdateTaskInput            *graphql.InputObject
 	DoraMessageInputType       *graphql.InputObject
@@ -203,6 +204,7 @@ func buildTypes() *Types {
 				"startDate":   &graphql.Field{Type: graphql.String},
 				"dueDate":     &graphql.Field{Type: graphql.String},
 				"completedAt": &graphql.Field{Type: graphql.String},
+				"sortOrder":   &graphql.Field{Type: graphql.Int},
 				"comments": &graphql.Field{
 					Type: graphql.NewList(graphql.NewNonNull(taskCommentType)),
 				},
@@ -281,15 +283,37 @@ func buildTypes() *Types {
 		},
 	})
 
-	doraSuggestedActionType := graphql.NewObject(graphql.ObjectConfig{
-		Name: "DoraSuggestedAction",
+	// backend/internal/graph/types.go — only buildTypes() DoraSuggestedAction section changed
+	doraTaskItemType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "DoraTaskItem",
 		Fields: graphql.Fields{
-			"type":           &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 			"title":          &graphql.Field{Type: graphql.String},
 			"description":    &graphql.Field{Type: graphql.String},
 			"targetUserKode": &graphql.Field{Type: graphql.String},
-			"startDate":      &graphql.Field{Type: graphql.String},
-			"endDate":        &graphql.Field{Type: graphql.String},
+		},
+	})
+
+	doraDivisionCandidateType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "DoraDivisionCandidate",
+		Fields: graphql.Fields{
+			"kode": &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+			"nama": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
+	doraSuggestedActionType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "DoraSuggestedAction",
+		Fields: graphql.Fields{
+			"type":               &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"title":              &graphql.Field{Type: graphql.String},
+			"description":        &graphql.Field{Type: graphql.String},
+			"targetUserKode":     &graphql.Field{Type: graphql.String},
+			"startDate":          &graphql.Field{Type: graphql.String},
+			"endDate":            &graphql.Field{Type: graphql.String},
+			"styleNotes":         &graphql.Field{Type: graphql.String},
+			"tasks":              &graphql.Field{Type: graphql.NewList(doraTaskItemType)},
+			"divisions":          &graphql.Field{Type: graphql.NewList(graphql.Int)},
+			"divisionCandidates": &graphql.Field{Type: graphql.NewList(doraDivisionCandidateType)},
 		},
 	})
 
@@ -323,5 +347,7 @@ func buildTypes() *Types {
 		ReactionSummaryType:        reactionSummaryType,
 		DoraResponseType:           doraResponseType,
 		DoraMessageInputType:       doraMessageInputType,
+		DoraTaskItemType:           doraTaskItemType,
+		DoraSuggestedActionType:    doraSuggestedActionType,
 	}
 }

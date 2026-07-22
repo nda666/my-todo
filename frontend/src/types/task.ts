@@ -86,6 +86,7 @@ export interface Task {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  sortOrder: number;
   comments: TaskComment[];
   meta: TaskMeta[];
 }

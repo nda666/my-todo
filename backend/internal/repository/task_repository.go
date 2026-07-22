@@ -1,3 +1,4 @@
+// backend/internal/repository/task_repository.go
 package repository
 
 import (
@@ -11,25 +12,30 @@ import (
 )
 
 type TaskQueryOptions struct {
-	UserKode   *string // scope ke satu orang
+	UserKode   *string
 	UserKodeIn []string
-	DivisiKode *int // scope ke satu divisi (dipakai kalau UserKode nil)
+	DivisiKode *int
 	CursorID   uint
 	Limit      int
+}
+
+type ReorderResult struct {
+	ID        uint `json:"id"`
+	SortOrder int  `json:"sort_order"`
 }
 
 type TaskRepository interface {
 	FindPaginated(ctx context.Context, opts TaskQueryOptions) ([]models.Task, error)
 	FindByID(ctx context.Context, id uint) (*models.Task, error)
-	FindOwned(ctx context.Context, id uint, kodeku string) (*models.Task, error) // milik sendiri ATAU dibuat sendiri (leader)
+	FindOwned(ctx context.Context, id uint, kodeku string) (*models.Task, error)
 	FindByUserKodesInRange(ctx context.Context, userKodes []string, from, to time.Time) ([]models.Task, error)
 	FindByProjectID(ctx context.Context, projectID uint, cursorID uint, limit int) ([]models.Task, error)
 
 	Create(ctx context.Context, task *models.Task) error
 	Save(ctx context.Context, task *models.Task) error
 	Delete(ctx context.Context, id uint, kodeku string) (bool, error)
+	Reorder(ctx context.Context, kodeku string, orderedIDs []uint) ([]models.Task, error)
 }
-
 type taskRepository struct {
 	db *gorm.DB
 }
@@ -65,7 +71,7 @@ func (r *taskRepository) FindPaginated(ctx context.Context, opts TaskQueryOption
 
 	var tasks []models.Task
 	err := withTaskPreloads(query).
-		Order("id DESC").
+		Order("sort_order DESC, id DESC"). // <-- ganti, hormati urutan manual drag-and-drop
 		Limit(opts.Limit + 1).
 		Find(&tasks).Error
 	return tasks, err
@@ -126,6 +132,50 @@ func (r *taskRepository) FindByProjectID(ctx context.Context, projectID uint, cu
 		query = query.Where("xv_task.id < ?", cursorID)
 	}
 	var tasks []models.Task
-	err := withTaskPreloads(query).Order("xv_task.id DESC").Limit(limit).Find(&tasks).Error
+	err := withTaskPreloads(query).Order("xv_task.sort_order DESC, xv_task.id DESC").Limit(limit).Find(&tasks).Error
 	return tasks, err
+}
+
+// Reorder hanya boleh menata ulang task milik/dibuat oleh kodeku sendiri.
+// orderedIDs[0] = paling atas -> dapat sort_order tertinggi.
+// Kita buat struct kustom yang ringkas untuk menampung hasilnya
+
+func (r *taskRepository) Reorder(ctx context.Context, kodeku string, orderedIDs []uint) ([]models.Task, error) {
+	total := len(orderedIDs)
+	var updatedTasks []models.Task
+
+	// Mulai Transaksi (sangat disarankan karena melakukan perulangan query)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i, id := range orderedIDs {
+			order := total - i
+
+			// 1. Lakukan UPDATE terlebih dahulu (tanpa clause.Returning)
+			err := tx.Model(&models.Task{}).
+				Where("id = ? AND (user_kode = ? OR created_by = ?)", id, kodeku, kodeku).
+				Update("sort_order", order).Error
+
+			if err != nil {
+				return err
+			}
+
+			// 2. Ambil data ID dan Sort Order yang baru saja di-update
+			var task models.Task
+			err = tx.Select("id", "sort_order").
+				Where("id = ?", id).
+				First(&task).Error
+
+			if err != nil {
+				return err
+			}
+
+			updatedTasks = append(updatedTasks, task)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedTasks, nil
 }

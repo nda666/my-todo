@@ -1,3 +1,4 @@
+// frontend/src/pages/PegawaiTasks.tsx
 import React, {
     useCallback,
     useState,
@@ -5,6 +6,7 @@ import React, {
 
 import {
     Card,
+    Collapse,
     Empty,
     Layout,
     Segmented,
@@ -21,8 +23,24 @@ import {
     TableOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@apollo/client';
+import {
+    closestCenter,
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
-import TaskCard from '../components/TaskCard';
+import DragTaskPreview from '../components/DragTaskPreview';
+import SortableTaskCard from '../components/SortableTaskCard';
 import TaskStatusTabs from '../components/TaskStatusTabs';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +54,7 @@ import {
     DELETE_META,
     DELETE_TASK,
     REORDER_META,
+    REORDER_TASKS,
     SET_META,
     TOGGLE_REACTION,
     UPDATE_TASK,
@@ -59,6 +78,8 @@ export default function PegawaiTasks() {
     const { divisiId, pegawaiId } = useParams<{ divisiId: string; pegawaiId: string }>()
     const [viewMode, setViewMode] = useLocalStorageState<'card' | 'table'>('task_view_mode', 'card')
     const [statusTab, setStatusTab] = useState<StatusTabKey>('all')
+    const [draggingTask, setDraggingTask] = useState<Task | null>(null)
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const handleBack = useCallback(() => navigate(`/teams/${divisiId}`), [navigate, divisiId])
     const isOwnPage = pegawaiId === me?.kodeku
@@ -72,10 +93,10 @@ export default function PegawaiTasks() {
     const [setMetaMutation] = useMutation(SET_META)
     const [deleteMetaMutation] = useMutation(DELETE_META)
     const [reorderMetaMutation] = useMutation(REORDER_META)
+    const [reorderTasksMutation] = useMutation(REORDER_TASKS)
 
     const handleUpdate = async (id: string, input: any) => {
         await updateTaskMutation({ variables: { id, input } })
-        // trigger list refresh
         loadMore()
     }
     const handleDelete = async (id: string) => {
@@ -112,6 +133,30 @@ export default function PegawaiTasks() {
     const filteredTasks = filterTasksByTab(tasks, statusTab)
     const counts = countTasksByTab(tasks)
 
+    const isAllTab = statusTab === 'all'
+    const activeTasks = isAllTab ? filteredTasks.filter((t) => t.status !== 'COMPLETED') : filteredTasks
+    const completedTasksInAllTab = isAllTab ? filteredTasks.filter((t) => t.status === 'COMPLETED') : []
+
+    const handleTaskDragStart = (event: DragStartEvent) => {
+        if (!isOwnPage) return
+        setDraggingTask(activeTasks.find((t) => t.id === event.active.id) || null)
+    }
+
+    const handleTaskDragEnd = (event: DragEndEvent) => {
+        setDraggingTask(null)
+        if (!isOwnPage) return
+        const { active, over } = event
+        if (!over || active.id === over.id) return
+        const oldIndex = activeTasks.findIndex((t) => t.id === active.id)
+        const newIndex = activeTasks.findIndex((t) => t.id === over.id)
+        if (oldIndex === -1 || newIndex === -1) return
+
+        const orderedIds = arrayMove(activeTasks, oldIndex, newIndex).map((t) => t.id)
+        reorderTasksMutation({ variables: { orderedIds } })
+            .then(() => loadMore())
+            .catch(() => { })
+    }
+
     useTeamHeader({ title: isOwnPage ? 'Task Saya' : 'Task Pegawai', onBack: handleBack })
     return (
         <>
@@ -124,7 +169,7 @@ export default function PegawaiTasks() {
                 <>
                     <div className="flex items-center justify-between mb-4 px-1">
                         <Text className="text-xs !text-slate-500 dark:!text-slate-400">
-                            {isOwnPage ? 'Perbarui status tugas atau edit rincian secara langsung' : 'Task yang Anda buatkan bisa diedit, sisanya hanya bisa dilihat'}
+                            {isOwnPage ? 'Perbarui status tugas, edit rincian, atau seret untuk mengubah urutan' : 'Task yang Anda buatkan bisa diedit, sisanya hanya bisa dilihat'}
                         </Text>
                         <Segmented
                             value={viewMode}
@@ -159,6 +204,9 @@ export default function PegawaiTasks() {
                                 onSetMeta={handleSetMeta}
                                 onDeleteMeta={handleDeleteMeta}
                                 onReorderMeta={handleReorderMeta}
+                                onReorderTasks={isOwnPage ? (orderedIds) =>
+                                    reorderTasksMutation({ variables: { orderedIds } }).then(() => loadMore()).catch(() => { })
+                                    : undefined}
                                 isRowEditable={canManageTask}
                             />
                             <div ref={sentinelRef} />
@@ -166,20 +214,66 @@ export default function PegawaiTasks() {
                         </>
                     ) : (
                         <div>
-                            {filteredTasks.map((task) => (
-                                <TaskCard
-                                    key={task.id}
-                                    task={task}
-                                    onUpdate={handleUpdate}
-                                    onDelete={handleDelete}
-                                    onAddComment={handleAddComment}
-                                    onToggleReaction={handleToggleReaction}
-                                    onSetMeta={handleSetMeta}
-                                    onDeleteMeta={handleDeleteMeta}
-                                    onReorderMeta={handleReorderMeta}
-                                    readOnly={!canManageTask(task)}
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragStart={handleTaskDragStart}
+                                onDragEnd={handleTaskDragEnd}
+                                onDragCancel={() => setDraggingTask(null)}
+                            >
+                                <SortableContext items={activeTasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                                    {activeTasks.map((task) => (
+                                        <SortableTaskCard
+                                            key={task.id}
+                                            task={task}
+                                            onUpdate={handleUpdate}
+                                            onDelete={handleDelete}
+                                            onAddComment={handleAddComment}
+                                            onToggleReaction={handleToggleReaction}
+                                            onSetMeta={handleSetMeta}
+                                            onDeleteMeta={handleDeleteMeta}
+                                            onReorderMeta={handleReorderMeta}
+                                            readOnly={!canManageTask(task)}
+                                        />
+                                    ))}
+                                </SortableContext>
+                                <DragOverlay>{draggingTask && <DragTaskPreview task={draggingTask} />}</DragOverlay>
+                            </DndContext>
+
+                            {isAllTab && completedTasksInAllTab.length > 0 && (
+                                <Collapse
+                                    className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-xl"
+                                    items={[
+                                        {
+                                            key: 'completed',
+                                            label: (
+                                                <span className="text-sm font-medium !text-slate-600 dark:!text-slate-300">
+                                                    Selesai ({completedTasksInAllTab.length})
+                                                </span>
+                                            ),
+                                            children: (
+                                                <div className="pt-2">
+                                                    {completedTasksInAllTab.map((task) => (
+                                                        <SortableTaskCard
+                                                            key={task.id}
+                                                            task={task}
+                                                            onUpdate={handleUpdate}
+                                                            onDelete={handleDelete}
+                                                            onAddComment={handleAddComment}
+                                                            onToggleReaction={handleToggleReaction}
+                                                            onSetMeta={handleSetMeta}
+                                                            onDeleteMeta={handleDeleteMeta}
+                                                            onReorderMeta={handleReorderMeta}
+                                                            readOnly
+                                                        />
+                                                    ))}
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
                                 />
-                            ))}
+                            )}
+
                             <div ref={sentinelRef} />
                             {loadingMore && <div className="text-center py-4"><Spin /></div>}
                         </div>

@@ -1,3 +1,4 @@
+// frontend/src/pages/Dashboard.tsx
 import React, {
   useMemo,
   useState,
@@ -6,6 +7,7 @@ import React, {
 import {
   Button,
   Card,
+  Collapse,
   Empty,
   message,
   Segmented,
@@ -22,9 +24,25 @@ import {
   useMutation,
   useQuery,
 } from '@apollo/client';
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 import CreateTaskModal from '../components/CreateTaskModal';
-import TaskCard from '../components/TaskCard';
+import DragTaskPreview from '../components/DragTaskPreview';
+import SortableTaskCard from '../components/SortableTaskCard';
 import TaskStatusTabs from '../components/TaskStatusTabs';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +58,7 @@ import {
   GET_COLLEAGUES,
   GET_TEAM_OVERVIEW,
   REORDER_META,
+  REORDER_TASKS,
   SET_META,
   TOGGLE_REACTION,
   UPDATE_TASK,
@@ -63,10 +82,11 @@ export default function Dashboard() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [viewMode, setViewMode] = useLocalStorageState<'card' | 'table'>('task_view_mode', 'card')
   const [statusTab, setStatusTab] = useState<StatusTabKey>('all')
+  const [draggingTask, setDraggingTask] = useState<Task | null>(null)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const isLeader = me?.pegawai?.statusLeader === 1
 
-  // --- Baca data (loading cuma di initial load, polling ringan untuk "realtime") ---
   const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(me?.kodeku || null)
   const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
 
@@ -74,7 +94,6 @@ export default function Dashboard() {
   const colleagues: Colleague[] = colleaguesData?.colleagues || []
   const teamMembers = useMemo(() => colleagues.filter((c) => c.kodeku !== me?.kodeku), [colleagues, me?.kodeku])
 
-  // ringkasan jumlah task per kolega untuk badge sidebar - polling ringan, bukan manual reload
   const { data: overviewData } = useQuery(GET_TEAM_OVERVIEW,
     { pollInterval: 30000 }
   )
@@ -86,7 +105,6 @@ export default function Dashboard() {
     return counts
   }, [overviewData])
 
-  // --- Mutations: cache di-update langsung, tanpa refetch/reload manual ---
   const [createTaskMutation, { loading: creating }] = useMutation(CREATE_TASK, {
     update(cache, { data }) {
       const newTask = data.createTask
@@ -107,6 +125,7 @@ export default function Dashboard() {
   const [setMetaMutation] = useMutation(SET_META)
   const [deleteMetaMutation] = useMutation(DELETE_META)
   const [reorderMetaMutation] = useMutation(REORDER_META)
+  const [reorderTasksMutation] = useMutation(REORDER_TASKS)
 
   const handleCreate = async (values: { title: string; description?: string; meta: MetaDraft[]; startDate?: string; dueDate?: string }) => {
     try {
@@ -120,7 +139,6 @@ export default function Dashboard() {
         },
       })
       setIsCreateModalOpen(false)
-      // tidak ada message.success - task baru langsung muncul di list, itu konfirmasinya
     } catch (err: any) {
       message.error(err.message || 'Gagal menambahkan task')
     }
@@ -144,7 +162,6 @@ export default function Dashboard() {
           cache.gc()
         },
       })
-      // task langsung hilang dari list - tidak perlu notif sukses
     } catch (err: any) {
       message.error(err.message || 'Gagal menghapus task')
     }
@@ -191,6 +208,46 @@ export default function Dashboard() {
   const filteredTasks = filterTasksByTab(tasks, statusTab)
   const counts = countTasksByTab(tasks)
 
+  const isAllTab = statusTab === 'all'
+  const activeTasks = isAllTab ? filteredTasks.filter((t) => t.status !== 'COMPLETED') : filteredTasks
+  const completedTasksInAllTab = isAllTab ? filteredTasks.filter((t) => t.status === 'COMPLETED') : []
+
+  const handleTaskDragStart = (event: DragStartEvent) => {
+    setDraggingTask(activeTasks.find((t) => t.id === event.active.id) || null)
+  }
+
+  const handleTaskDragEnd = (event: DragEndEvent) => {
+    setDraggingTask(null)
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = activeTasks.findIndex((t) => t.id === active.id)
+    const newIndex = activeTasks.findIndex((t) => t.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const reordered = arrayMove(activeTasks, oldIndex, newIndex)
+    const orderedIds = reordered.map((t) => t.id)
+
+    reorderTasksMutation({
+      variables: { orderedIds },
+      optimisticResponse: { reorderTasks: true },
+      update(cache) {
+        cache.modify({
+          fields: {
+            tasks(existing = { tasks: [], nextCursor: null, hasMore: false }) {
+              const orderedRefs = orderedIds
+                .map((id) => existing.tasks.find((ref: any) => ref.__ref === `Task:${id}`))
+                .filter(Boolean)
+              const remainingRefs = existing.tasks.filter(
+                (ref: any) => !orderedIds.includes(ref.__ref?.replace('Task:', ''))
+              )
+              return { ...existing, tasks: [...orderedRefs, ...remainingRefs] }
+            },
+          },
+        })
+      },
+    }).catch((err) => message.error(err.message || 'Gagal mengubah urutan task'))
+  }
+
   return (
     <DefaultLayout
       title="Daftar Tugas Anda"
@@ -210,7 +267,7 @@ export default function Dashboard() {
             <div>
               <Title level={5} className="!mb-0 font-semibold !text-slate-800 dark:!text-slate-200">Task Saya</Title>
               <Text className="text-xs !text-slate-500 dark:!text-slate-400">
-                Perbarui status tugas atau edit rincian tugas secara langsung
+                Perbarui status tugas, edit rincian, atau seret untuk mengubah urutan
               </Text>
             </div>
             <div className="flex items-center gap-2">
@@ -254,6 +311,10 @@ export default function Dashboard() {
                 onSetMeta={handleSetMeta}
                 onDeleteMeta={handleDeleteMeta}
                 onReorderMeta={handleReorderMeta}
+                onReorderTasks={(orderedIds) =>
+                  reorderTasksMutation({ variables: { orderedIds } })
+                    .catch((err) => message.error(err.message || 'Gagal mengubah urutan task'))
+                }
                 isRowEditable={canManageTask}
               />
               <div ref={sentinelRef} />
@@ -261,20 +322,66 @@ export default function Dashboard() {
             </>
           ) : (
             <div>
-              {filteredTasks.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onUpdate={handleUpdate}
-                  onDelete={handleDelete}
-                  onAddComment={handleAddComment}
-                  onToggleReaction={handleToggleReaction}
-                  onSetMeta={handleSetMeta}
-                  onDeleteMeta={handleDeleteMeta}
-                  onReorderMeta={handleReorderMeta}
-                  readOnly={!canManageTask(task)}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleTaskDragStart}
+                onDragEnd={handleTaskDragEnd}
+                onDragCancel={() => setDraggingTask(null)}
+              >
+                <SortableContext items={activeTasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                  {activeTasks.map((task) => (
+                    <SortableTaskCard
+                      key={task.id}
+                      task={task}
+                      onUpdate={handleUpdate}
+                      onDelete={handleDelete}
+                      onAddComment={handleAddComment}
+                      onToggleReaction={handleToggleReaction}
+                      onSetMeta={handleSetMeta}
+                      onDeleteMeta={handleDeleteMeta}
+                      onReorderMeta={handleReorderMeta}
+                      readOnly={!canManageTask(task)}
+                    />
+                  ))}
+                </SortableContext>
+                <DragOverlay>{draggingTask && <DragTaskPreview task={draggingTask} />}</DragOverlay>
+              </DndContext>
+
+              {isAllTab && completedTasksInAllTab.length > 0 && (
+                <Collapse
+                  className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-xl"
+                  items={[
+                    {
+                      key: 'completed',
+                      label: (
+                        <span className="text-sm font-medium !text-slate-600 dark:!text-slate-300">
+                          Selesai ({completedTasksInAllTab.length})
+                        </span>
+                      ),
+                      children: (
+                        <div className="pt-2">
+                          {completedTasksInAllTab.map((task) => (
+                            <SortableTaskCard
+                              key={task.id}
+                              task={task}
+                              onUpdate={handleUpdate}
+                              onDelete={handleDelete}
+                              onAddComment={handleAddComment}
+                              onToggleReaction={handleToggleReaction}
+                              onSetMeta={handleSetMeta}
+                              onDeleteMeta={handleDeleteMeta}
+                              onReorderMeta={handleReorderMeta}
+                              readOnly
+                            />
+                          ))}
+                        </div>
+                      ),
+                    },
+                  ]}
                 />
-              ))}
+              )}
+
               <div ref={sentinelRef} />
               {loadingMore && <div className="text-center py-4"><Spin /></div>}
             </div>

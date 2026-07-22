@@ -1,4 +1,7 @@
-import { Task, TaskStatus } from "../types/task";
+import {
+  Task,
+  TaskStatus,
+} from '../types/task';
 
 export type StatusTabKey = "all" | "incomplete" | "progress" | "complete";
 
@@ -9,8 +12,12 @@ const TAB_TO_STATUS: Record<Exclude<StatusTabKey, "all">, TaskStatus> = {
 };
 
 export function filterTasksByTab(tasks: Task[], tab: StatusTabKey): Task[] {
-  if (tab === "all") return tasks;
-  return tasks.filter((t) => t.status === TAB_TO_STATUS[tab]);
+  const filteredTasks =
+    tab === "all"
+      ? [...tasks]
+      : tasks.filter((t) => t.status === TAB_TO_STATUS[tab]);
+
+  return filteredTasks.sort((a, b) => b.sortOrder - a.sortOrder);
 }
 
 export function countTasksByTab(tasks: Task[]) {

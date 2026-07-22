@@ -1,25 +1,42 @@
+// frontend/src/components/TaskTable.tsx
 import React, { useState } from 'react';
 
 import {
-    Button,
-    Popconfirm,
-    Select,
-    Table,
-    Tag,
+  Button,
+  Popconfirm,
+  Select,
+  Table,
+  Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import {
-    DeleteOutlined,
-    EditOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { STATUS_OPTIONS } from '../constants/taskStatus';
 import { CloudinaryUploadResult } from '../lib/cloudinary';
 import {
-    MetaDraft,
-    Task,
-    TaskStatus,
+  MetaDraft,
+  Task,
+  TaskStatus,
 } from '../types/task';
 import CommentThread from './CommentThread';
 import MetaDisplay from './MetaDisplay';
@@ -40,10 +57,48 @@ interface TaskTableProps {
     onSetMeta: (taskId: string, key: string, value: string | null, type: MetaDraft['type']) => Promise<{ id: string }>
     onDeleteMeta: (id: string) => Promise<void>
     onReorderMeta: (taskId: string, orderedIds: string[]) => void
+    onReorderTasks?: (orderedIds: string[]) => void // <-- baru, opsional (kalau tidak dipasang, drag dimatikan)
     isRowEditable?: (task: Task) => boolean
 }
 
 const META_PREVIEW_COUNT = 5
+
+function DraggableRow({
+    children,
+    draggable,
+    ...props
+}: React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key': string; draggable: boolean }) {
+    const rowKey = (props as any)['data-row-key'] as string
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: rowKey,
+        disabled: !draggable,
+    })
+    const style: React.CSSProperties = {
+        ...(props.style || {}),
+        transform: CSS.Transform.toString(transform ? { ...transform, scaleY: 1 } : transform),
+        transition,
+        ...(isDragging ? { position: 'relative', zIndex: 999, background: 'var(--ant-color-bg-container)' } : {}),
+    }
+
+    return (
+        <tr {...props} ref={setNodeRef} style={style}>
+            {React.Children.map(children, (child: any) => {
+                if (child?.key === 'drag-handle') {
+                    return React.cloneElement(child, {
+                        children: draggable ? (
+                            <HolderOutlined
+                                {...attributes}
+                                {...listeners}
+                                className="cursor-grab !text-slate-400 hover:!text-slate-600"
+                            />
+                        ) : null,
+                    })
+                }
+                return child
+            })}
+        </tr>
+    )
+}
 
 export default function TaskTable({
     tasks,
@@ -54,11 +109,13 @@ export default function TaskTable({
     onSetMeta,
     onDeleteMeta,
     onReorderMeta,
+    onReorderTasks,
     isRowEditable = () => true,
 }: TaskTableProps) {
     const [editingTask, setEditingTask] = useState<Task | null>(null)
     const [editSubmitting, setEditSubmitting] = useState(false)
     const [expandedMetaRows, setExpandedMetaRows] = useState<Record<string, boolean>>({})
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const handleEditSubmit = async (id: string, input: UpdateTaskInput) => {
         setEditSubmitting(true)
@@ -70,7 +127,24 @@ export default function TaskTable({
         }
     }
 
+    const handleDragEnd = (event: DragEndEvent) => {
+        if (!onReorderTasks) return
+        const { active, over } = event
+        if (!over || active.id === over.id) return
+        const oldIndex = tasks.findIndex((t) => t.id === active.id)
+        const newIndex = tasks.findIndex((t) => t.id === over.id)
+        if (oldIndex === -1 || newIndex === -1) return
+        const reordered = arrayMove(tasks, oldIndex, newIndex)
+        onReorderTasks(reordered.map((t) => t.id))
+    }
+
     const columns: ColumnsType<Task> = [
+        ...(onReorderTasks ? [{
+            title: '',
+            key: 'drag-handle',
+            width: 32,
+            render: () => null,
+        }] : []),
         {
             title: 'Judul',
             dataIndex: 'title',
@@ -173,30 +247,47 @@ export default function TaskTable({
         },
     ]
 
+    const table = (
+        <Table<Task>
+            rowKey="id"
+            columns={columns}
+            dataSource={tasks}
+            pagination={false}
+            className="!bg-white dark:!bg-slate-900 rounded-xl overflow-hidden"
+            components={onReorderTasks ? {
+                body: {
+                    row: (props: any) => (
+                        <DraggableRow {...props} draggable={isRowEditable(tasks.find((t) => t.id === props['data-row-key'])!)} />
+                    ),
+                },
+            } : undefined}
+            expandable={{
+                expandedRowRender: (record) => (
+                    <div className="!bg-slate-50 dark:!bg-slate-950 p-3 rounded-lg !border !border-slate-100 dark:!border-slate-800">
+                        <div className="text-xs font-semibold !text-slate-500 dark:!text-slate-400 uppercase mb-2">
+                            Komentar ({record.comments?.length || 0})
+                        </div>
+                        <CommentThread
+                            taskId={record.id}
+                            comments={record.comments}
+                            onAddComment={onAddComment}
+                            onToggleReaction={onToggleReaction}
+                        />
+                    </div>
+                ),
+            }}
+        />
+    )
+
     return (
         <>
-            <Table<Task>
-                rowKey="id"
-                columns={columns}
-                dataSource={tasks}
-                pagination={false}
-                className="!bg-white dark:!bg-slate-900 rounded-xl overflow-hidden"
-                expandable={{
-                    expandedRowRender: (record) => (
-                        <div className="!bg-slate-50 dark:!bg-slate-950 p-3 rounded-lg !border !border-slate-100 dark:!border-slate-800">
-                            <div className="text-xs font-semibold !text-slate-500 dark:!text-slate-400 uppercase mb-2">
-                                Komentar ({record.comments?.length || 0})
-                            </div>
-                            <CommentThread
-                                taskId={record.id}
-                                comments={record.comments}
-                                onAddComment={onAddComment}
-                                onToggleReaction={onToggleReaction}
-                            />
-                        </div>
-                    ),
-                }}
-            />
+            {onReorderTasks ? (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                        {table}
+                    </SortableContext>
+                </DndContext>
+            ) : table}
 
             <TaskEditModal
                 open={!!editingTask}

@@ -1,3 +1,4 @@
+// frontend/src/pages/ProjectDetail.tsx
 import React, {
     useCallback,
     useEffect,
@@ -7,6 +8,7 @@ import React, {
 
 import {
     Button,
+    Collapse,
     Empty,
     message,
     Segmented,
@@ -31,9 +33,25 @@ import {
     useMutation,
     useQuery,
 } from '@apollo/client';
+import {
+    closestCenter,
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 import CreateTaskModal from '../components/CreateTaskModal';
-import TaskCard from '../components/TaskCard';
+import DragTaskPreview from '../components/DragTaskPreview';
+import SortableTaskCard from '../components/SortableTaskCard';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamHeader } from '../layouts/TeamLayout';
@@ -51,11 +69,15 @@ import {
     REMOVE_DIVISION,
     REMOVE_PROJECT_LEADER,
     REORDER_META,
+    REORDER_TASKS,
     SET_META,
     TOGGLE_REACTION,
     UPDATE_TASK,
 } from '../lib/queries';
-import { Colleague } from '../types/task';
+import {
+    Colleague,
+    Task,
+} from '../types/task';
 
 const { Title, Text } = Typography
 
@@ -64,6 +86,8 @@ export default function ProjectDetail() {
     const navigate = useNavigate()
     const { projectId } = useParams<{ projectId: string }>()
     const client = useApolloClient()
+    const [draggingTask, setDraggingTask] = useState<Task | null>(null)
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const [divisionMembers, setDivisionMembers] = useState<Record<number, Colleague[]>>({})
     const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
@@ -77,18 +101,16 @@ export default function ProjectDetail() {
     })
     const project = projectData?.project
 
-    const { data: tasksData, loading: tasksLoading } = useQuery(GET_PROJECT_TASKS, {
+    const { data: tasksData, loading: tasksLoading, refetch: refetchProjectTasks } = useQuery(GET_PROJECT_TASKS, {
         variables: { projectId, limit: 50 },
         skip: !projectId,
-        pollInterval: 15000, // task project dishare banyak orang - poll ringan biar terasa realtime
+        pollInterval: 15000,
     })
-    const tasks = tasksData?.projectTasks?.tasks || []
+    const tasks: Task[] = tasksData?.projectTasks?.tasks || []
 
     const { data: divisionsData } = useQuery(GET_DIVISIONS)
     const divisions = divisionsData?.divisions || []
 
-    // Anggota per divisi cuma dibutuhkan buat dropdown assign - fetch manual sekali,
-    // bukan reaktif, karena bukan bagian dari alur render utama.
     useEffect(() => {
         if (!project?.divisions) return
         const load = async () => {
@@ -111,7 +133,6 @@ export default function ProjectDetail() {
     const nonJoinedDivisions = divisions.filter((d: any) => !project?.divisions.includes(d.kode))
     const allMembers = useMemo(() => Object.values(divisionMembers).flat(), [divisionMembers])
 
-    // --- Mutations ---
     const [inviteDivision] = useMutation(INVITE_DIVISION)
     const [removeDivision] = useMutation(REMOVE_DIVISION)
     const [addProjectLeader] = useMutation(ADD_PROJECT_LEADER)
@@ -124,6 +145,7 @@ export default function ProjectDetail() {
     const [setMetaMutation] = useMutation(SET_META)
     const [deleteMetaMutation] = useMutation(DELETE_META)
     const [reorderMetaMutation] = useMutation(REORDER_META)
+    const [reorderTasksMutation] = useMutation(REORDER_TASKS)
 
     const handleInvite = () => {
         if (!inviteTarget || !projectId) return
@@ -142,7 +164,6 @@ export default function ProjectDetail() {
         })
             .then(() => setInviteTarget(null))
             .catch((err) => message.error(err.message || 'Gagal mengundang divisi'))
-        // tag divisi baru langsung muncul di UI - tidak perlu notif sukses
     }
 
     const handleRemoveDivision = (divisiKode: number) => {
@@ -219,7 +240,6 @@ export default function ProjectDetail() {
                 },
             })
             setIsCreateTaskOpen(false)
-            // task baru langsung muncul di list - tidak perlu notif sukses
         } catch (err: any) {
             message.error(err.message || 'Gagal membuat task')
         }
@@ -272,6 +292,27 @@ export default function ProjectDetail() {
     }
 
     const canManageTask = (task: any) => task.userKode === me?.kodeku || task.createdBy === me?.kodeku
+
+    const activeTasks = tasks.filter((t) => t.status !== 'COMPLETED')
+    const completedTasks = tasks.filter((t) => t.status === 'COMPLETED')
+
+    const handleTaskDragStart = (event: DragStartEvent) => {
+        setDraggingTask(activeTasks.find((t) => t.id === event.active.id) || null)
+    }
+
+    const handleTaskDragEnd = (event: DragEndEvent) => {
+        setDraggingTask(null)
+        const { active, over } = event
+        if (!over || active.id === over.id) return
+        const oldIndex = activeTasks.findIndex((t) => t.id === active.id)
+        const newIndex = activeTasks.findIndex((t) => t.id === over.id)
+        if (oldIndex === -1 || newIndex === -1) return
+
+        const orderedIds = arrayMove(activeTasks, oldIndex, newIndex).map((t) => t.id)
+        reorderTasksMutation({ variables: { orderedIds } })
+            .then(() => refetchProjectTasks())
+            .catch((err) => message.error(err.message || 'Gagal mengubah urutan task'))
+    }
 
     const handleBack = useCallback(() => navigate('/projects'), [navigate])
     const headerExtra = useMemo(() => (
@@ -380,24 +421,74 @@ export default function ProjectDetail() {
                             onSetMeta={handleSetMeta}
                             onDeleteMeta={handleDeleteMeta}
                             onReorderMeta={handleReorderMeta}
+                            onReorderTasks={(orderedIds) =>
+                                reorderTasksMutation({ variables: { orderedIds } })
+                                    .then(() => refetchProjectTasks())
+                                    .catch((err) => message.error(err.message || 'Gagal mengubah urutan task'))
+                            }
                             isRowEditable={canManageTask}
                         />
                     ) : (
                         <div>
-                            {tasks.map((task: any) => (
-                                <TaskCard
-                                    key={task.id}
-                                    task={task}
-                                    onUpdate={handleUpdate}
-                                    onDelete={handleDelete}
-                                    onAddComment={handleAddComment}
-                                    onToggleReaction={handleToggleReaction}
-                                    onSetMeta={handleSetMeta}
-                                    onDeleteMeta={handleDeleteMeta}
-                                    onReorderMeta={handleReorderMeta}
-                                    readOnly={!canManageTask(task)}
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragStart={handleTaskDragStart}
+                                onDragEnd={handleTaskDragEnd}
+                                onDragCancel={() => setDraggingTask(null)}
+                            >
+                                <SortableContext items={activeTasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                                    {activeTasks.map((task) => (
+                                        <SortableTaskCard
+                                            key={task.id}
+                                            task={task}
+                                            onUpdate={handleUpdate}
+                                            onDelete={handleDelete}
+                                            onAddComment={handleAddComment}
+                                            onToggleReaction={handleToggleReaction}
+                                            onSetMeta={handleSetMeta}
+                                            onDeleteMeta={handleDeleteMeta}
+                                            onReorderMeta={handleReorderMeta}
+                                            readOnly={!canManageTask(task)}
+                                        />
+                                    ))}
+                                </SortableContext>
+                                <DragOverlay>{draggingTask && <DragTaskPreview task={draggingTask} />}</DragOverlay>
+                            </DndContext>
+
+                            {completedTasks.length > 0 && (
+                                <Collapse
+                                    className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 rounded-xl"
+                                    items={[
+                                        {
+                                            key: 'completed',
+                                            label: (
+                                                <span className="text-sm font-medium !text-slate-600 dark:!text-slate-300">
+                                                    Selesai ({completedTasks.length})
+                                                </span>
+                                            ),
+                                            children: (
+                                                <div className="pt-2">
+                                                    {completedTasks.map((task) => (
+                                                        <SortableTaskCard
+                                                            key={task.id}
+                                                            task={task}
+                                                            onUpdate={handleUpdate}
+                                                            onDelete={handleDelete}
+                                                            onAddComment={handleAddComment}
+                                                            onToggleReaction={handleToggleReaction}
+                                                            onSetMeta={handleSetMeta}
+                                                            onDeleteMeta={handleDeleteMeta}
+                                                            onReorderMeta={handleReorderMeta}
+                                                            readOnly
+                                                        />
+                                                    ))}
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
                                 />
-                            ))}
+                            )}
                         </div>
                     )}
                 </div>

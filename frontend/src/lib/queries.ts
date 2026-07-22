@@ -57,6 +57,7 @@ export const TASK_FIELDS = gql`
     description
     status
     userKode
+    sortOrder
     createdBy
     createdAt
     updatedAt
@@ -267,6 +268,7 @@ export const GET_TEAMS_SUMMARY = gql`
   }
 `;
 
+// frontend/src/lib/queries.ts — only ASK_DORA changed, rest of file unchanged
 export const ASK_DORA = gql`
   mutation AskDora($message: String!, $history: [DoraMessageInput!]) {
     askDora(message: $message, history: $history) {
@@ -278,7 +280,27 @@ export const ASK_DORA = gql`
         targetUserKode
         startDate
         endDate
+        styleNotes
+        divisions
+        tasks {
+          title
+          description
+          targetUserKode
+        }
+        divisionCandidates {
+          kode
+          nama
+        }
       }
+    }
+  }
+`;
+
+export const REORDER_TASKS = gql`
+  mutation ReorderTasks($orderedIds: [ID!]) {
+    reorderTasks(orderedIds: $orderedIds) {
+      id
+      sortOrder
     }
   }
 `;

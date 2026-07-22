@@ -13,6 +13,7 @@ import (
 	"golang-todo/internal/repository"
 )
 
+// backend/internal/httpapi/report_handler.go — only the Generate call + style param changed
 func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, err := auth.RequireUser(r.Context())
@@ -23,13 +24,14 @@ func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) h
 
 		startStr := r.URL.Query().Get("start")
 		endStr := r.URL.Query().Get("end")
+		styleNotes := r.URL.Query().Get("style") // <-- baru, opsional
 		start, err1 := time.Parse("2006-01-02", startStr)
 		end, err2 := time.Parse("2006-01-02", endStr)
 		if err1 != nil || err2 != nil {
 			http.Error(w, "parameter start/end tidak valid (format YYYY-MM-DD)", http.StatusBadRequest)
 			return
 		}
-		end = end.Add(24*time.Hour - time.Second) // sampai akhir hari
+		end = end.Add(24*time.Hour - time.Second)
 
 		members, err := repos.Pegawai.FindByDivisi(r.Context(), claims.ExternalToken, claims.KodeDivisi)
 		if err != nil {
@@ -74,10 +76,8 @@ func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) h
 		}
 
 		periodLabel := fmt.Sprintf("%s - %s", start.Format("2 Jan 2006"), end.Format("2 Jan 2006"))
-		tmpFile := fmt.Sprintf("/tmp/laporan-tim-%d.pptx", time.Now().UnixNano())
-		defer os.Remove(tmpFile)
 
-		outputPath, err := reportgen.Generate(periodLabel, groups)
+		outputPath, err := reportgen.Generate(periodLabel, groups, styleNotes)
 		if err != nil {
 			http.Error(w, "gagal membuat file presentasi: "+err.Error(), http.StatusInternalServerError)
 			return
