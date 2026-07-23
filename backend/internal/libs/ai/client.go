@@ -41,6 +41,10 @@ type chatResponse struct {
 }
 
 func (c *openAICompatClient) Complete(ctx context.Context, messages []ChatMessage) (string, error) {
+	if b, err := json.MarshalIndent(messages, "", "  "); err == nil {
+		fmt.Printf("Chat messages:\n%s\n", b)
+	}
+
 	payload, err := json.Marshal(chatRequest{Model: c.model, Messages: messages})
 	if err != nil {
 		return "", err

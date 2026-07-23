@@ -501,7 +501,7 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 
 				rawReply, err := aiClient.Complete(p.Context, messages)
 				if err != nil {
-					return nil, fmt.Errorf("Dora sedang tidak bisa merespons, coba lagi sebentar lagi")
+					return nil, fmt.Errorf("Dora sedang tidak bisa merespons, coba lagi sebentar lagi %s", err)
 				}
 
 				cleanReply, action := ai.ExtractAction(rawReply)

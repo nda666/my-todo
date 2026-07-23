@@ -1,3 +1,4 @@
+// backend/main.go — only the relevant additions, rest of file unchanged
 package main
 
 import (
@@ -38,8 +39,8 @@ func main() {
 	authService := auth.NewService(cfg, doranClient)
 
 	aiClient := &ai.FallbackClient{
-		Primary:   ai.NewNimClient(cfg.NimAPIKey, cfg.NimModel),
 		Secondary: ai.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+		Primary:   ai.NewNimClient(cfg.NimAPIKey, cfg.NimModel),
 	}
 
 	projectPolicy := auth.NewProjectPolicy(repos.Project, repos.Pegawai)

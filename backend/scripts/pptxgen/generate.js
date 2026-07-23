@@ -1,3 +1,4 @@
+// backend/scripts/pptxgen/generate.js
 const fs = require("fs");
 const PptxGenJS = require("pptxgenjs");
 
@@ -9,9 +10,54 @@ if (!inputPath || !outputPath) {
 }
 
 const data = JSON.parse(fs.readFileSync(inputPath, "utf-8"));
-const { periodLabel, groups } = data;
+const { periodLabel, groups, theme } = data;
 
-const ACCENTS = ["2563EB", "059669", "D97706", "DB2777", "7C3AED", "0891B2"];
+// Fallback kalau theme tidak dikirim (backward compatible) - default ke tema lama (corporate_blue-ish).
+const T = theme || {
+  primary: "2563EB",
+  secondary: "1E293B",
+  background: "FFFFFF",
+  textColor: "1E293B",
+  mutedColor: "64748B",
+  fontFamily: "Calibri",
+};
+
+// Palet aksen per-grup diturunkan dari primary+secondary tema, bukan warna acak tetap,
+// supaya seluruh deck (termasuk slide detail per target) konsisten dengan tema yang dipilih.
+const ACCENTS = [
+  T.primary,
+  T.secondary,
+  shade(T.primary, 25),
+  shade(T.secondary, -20),
+  shade(T.primary, -25),
+  shade(T.secondary, 25),
+];
+
+// Util kecil buat menerangkan/menggelapkan warna hex, dipakai supaya ACCENTS tidak monoton
+// hanya 2 warna walau groups-nya banyak.
+function shade(hex, percent) {
+  const num = parseInt(hex, 16);
+  let r = (num >> 16) + Math.round((percent / 100) * 255);
+  let g = ((num >> 8) & 0x00ff) + Math.round((percent / 100) * 255);
+  let b = (num & 0x0000ff) + Math.round((percent / 100) * 255);
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0").toUpperCase();
+}
+
+// Teks di atas background gelap butuh warna terang, dan sebaliknya - dipakai di title slide
+// & header slide detail (yang backgroundnya = primary) supaya tetap terbaca di semua tema (termasuk dark_mode).
+function isDark(hex) {
+  const num = parseInt(hex, 16);
+  const r = num >> 16,
+    g = (num >> 8) & 0x00ff,
+    b = num & 0x0000ff;
+  return 0.299 * r + 0.587 * g + 0.114 * b < 140;
+}
+const onPrimary = isDark(T.primary) ? "FFFFFF" : "111827";
+const onBackground = isDark(T.background) ? "F1F5F9" : T.textColor;
+const mutedOnBackground = T.mutedColor;
 
 const pptx = new PptxGenJS();
 pptx.defineLayout({ name: "WIDESCREEN", width: 10, height: 5.63 });
@@ -21,7 +67,14 @@ pptx.title = "Laporan Progres Tim";
 
 // --- Slide 1: Judul ---
 const titleSlide = pptx.addSlide();
-titleSlide.background = { color: "1E293B" };
+titleSlide.background = { color: T.background };
+titleSlide.addShape(pptx.ShapeType.rect, {
+  x: 0,
+  y: 0,
+  w: 10,
+  h: 5.63,
+  fill: { color: T.background },
+});
 titleSlide.addText("Laporan Progres Tim", {
   x: 0.8,
   y: 1.7,
@@ -29,8 +82,8 @@ titleSlide.addText("Laporan Progres Tim", {
   h: 1.1,
   fontSize: 40,
   bold: true,
-  color: "FFFFFF",
-  fontFace: "Calibri",
+  color: onBackground,
+  fontFace: T.fontFamily,
 });
 titleSlide.addText(`Periode: ${periodLabel}`, {
   x: 0.8,
@@ -38,15 +91,15 @@ titleSlide.addText(`Periode: ${periodLabel}`, {
   w: 8.4,
   h: 0.6,
   fontSize: 20,
-  color: "93C5FD",
-  fontFace: "Calibri",
+  color: T.primary,
+  fontFace: T.fontFamily,
 });
 titleSlide.addShape(pptx.ShapeType.rect, {
   x: 0.8,
   y: 3.55,
   w: 1.2,
   h: 0.06,
-  fill: { color: "2563EB" },
+  fill: { color: T.primary },
 });
 titleSlide.addText("Disusun otomatis oleh Dora - Doran Todo Assistant", {
   x: 0.8,
@@ -55,13 +108,13 @@ titleSlide.addText("Disusun otomatis oleh Dora - Doran Todo Assistant", {
   h: 0.4,
   fontSize: 12,
   italic: true,
-  color: "64748B",
-  fontFace: "Calibri",
+  color: mutedOnBackground,
+  fontFace: T.fontFamily,
 });
 
 // --- Slide 2: Ringkasan / List Target ---
 const summarySlide = pptx.addSlide();
-summarySlide.background = { color: "FFFFFF" };
+summarySlide.background = { color: T.background };
 summarySlide.addText("List Target", {
   x: 0.6,
   y: 0.35,
@@ -69,13 +122,14 @@ summarySlide.addText("List Target", {
   h: 0.6,
   fontSize: 28,
   bold: true,
-  color: "1E293B",
-  fontFace: "Calibri",
+  color: onBackground,
+  fontFace: T.fontFamily,
 });
 
 let y = 1.25;
 groups.forEach((g, i) => {
   const accent = ACCENTS[i % ACCENTS.length];
+  const onAccent = isDark(accent) ? "FFFFFF" : "111827";
 
   summarySlide.addShape(pptx.ShapeType.roundRect, {
     x: 0.6,
@@ -93,10 +147,10 @@ groups.forEach((g, i) => {
     h: 0.5,
     fontSize: 16,
     bold: true,
-    color: "FFFFFF",
+    color: onAccent,
     align: "center",
     valign: "middle",
-    fontFace: "Calibri",
+    fontFace: T.fontFamily,
   });
 
   summarySlide.addText(g.targetName, {
@@ -105,9 +159,9 @@ groups.forEach((g, i) => {
     w: 6.0,
     h: 0.5,
     fontSize: 17,
-    color: "334155",
+    color: onBackground,
     valign: "middle",
-    fontFace: "Calibri",
+    fontFace: T.fontFamily,
   });
 
   // progress bar tipis di bawah nama, biar tidak monoton cuma teks+badge
@@ -116,7 +170,7 @@ groups.forEach((g, i) => {
     y: y + 0.42,
     w: 6.0,
     h: 0.06,
-    fill: { color: "E2E8F0" },
+    fill: { color: shade(T.background, isDark(T.background) ? 15 : -8) },
   });
   summarySlide.addShape(pptx.ShapeType.rect, {
     x: 2.1,
@@ -132,8 +186,9 @@ groups.forEach((g, i) => {
 // --- Slide detail per target ---
 groups.forEach((g, i) => {
   const accent = ACCENTS[i % ACCENTS.length];
+  const onAccent = isDark(accent) ? "FFFFFF" : "111827";
   const slide = pptx.addSlide();
-  slide.background = { color: "FFFFFF" };
+  slide.background = { color: T.background };
 
   slide.addShape(pptx.ShapeType.rect, {
     x: 0,
@@ -149,9 +204,9 @@ groups.forEach((g, i) => {
     h: 0.85,
     fontSize: 22,
     bold: true,
-    color: "FFFFFF",
+    color: onAccent,
     valign: "middle",
-    fontFace: "Calibri",
+    fontFace: T.fontFamily,
   });
 
   slide.addText("Sudah Selesai", {
@@ -161,19 +216,19 @@ groups.forEach((g, i) => {
     h: 0.4,
     fontSize: 16,
     bold: true,
-    color: "059669",
-    fontFace: "Calibri",
+    color: T.primary,
+    fontFace: T.fontFamily,
   });
   const doneText =
     g.doneTasks && g.doneTasks.length > 0
       ? g.doneTasks.map((t) => ({
           text: `✓  ${t}`,
-          options: { breakLine: true, color: "334155", fontSize: 13 },
+          options: { breakLine: true, color: onBackground, fontSize: 13 },
         }))
       : [
           {
             text: "Belum ada task selesai di periode ini.",
-            options: { italic: true, color: "94A3B8", fontSize: 13 },
+            options: { italic: true, color: mutedOnBackground, fontSize: 13 },
           },
         ];
   slide.addText(doneText, {
@@ -181,7 +236,7 @@ groups.forEach((g, i) => {
     y: 1.55,
     w: 4.3,
     h: 3.7,
-    fontFace: "Calibri",
+    fontFace: T.fontFamily,
     valign: "top",
   });
 
@@ -192,19 +247,19 @@ groups.forEach((g, i) => {
     h: 0.4,
     fontSize: 16,
     bold: true,
-    color: "D97706",
-    fontFace: "Calibri",
+    color: T.secondary,
+    fontFace: T.fontFamily,
   });
   const pendingText =
     g.pendingTasks && g.pendingTasks.length > 0
       ? g.pendingTasks.map((t) => ({
           text: `○  ${t}`,
-          options: { breakLine: true, color: "334155", fontSize: 13 },
+          options: { breakLine: true, color: onBackground, fontSize: 13 },
         }))
       : [
           {
             text: "Semua task pada target ini sudah selesai.",
-            options: { italic: true, color: "94A3B8", fontSize: 13 },
+            options: { italic: true, color: mutedOnBackground, fontSize: 13 },
           },
         ];
   slide.addText(pendingText, {
@@ -212,7 +267,7 @@ groups.forEach((g, i) => {
     y: 1.55,
     w: 4.3,
     h: 3.7,
-    fontFace: "Calibri",
+    fontFace: T.fontFamily,
     valign: "top",
   });
 });

@@ -10,7 +10,6 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/rs/cors v1.11.0
-	github.com/unidoc/unioffice v1.39.0
 	golang.org/x/sync v0.22.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.10
@@ -23,4 +22,5 @@ require (
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 )

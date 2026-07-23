@@ -1,3 +1,4 @@
+// backend/internal/libs/reportgen/pptx.go
 package reportgen
 
 import (
@@ -14,9 +15,9 @@ import (
 type reportPayload struct {
 	PeriodLabel string           `json:"periodLabel"`
 	Groups      []ai.ReportGroup `json:"groups"`
+	Theme       ai.ReportTheme   `json:"theme"`
 }
 
-// scriptPath dan nodeBin bisa dioverride lewat env var kalau perlu.
 var scriptPath = envOr("PPTXGEN_SCRIPT_PATH", "scripts/pptxgen/generate.js")
 var nodeBin = envOr("NODE_BIN_PATH", "node")
 
@@ -29,8 +30,11 @@ func envOr(key, fallback string) string {
 
 // Generate menulis data ke file JSON sementara, memanggil Node.js (generate.js
 // yang pakai PptxGenJS) untuk membuat file .pptx, lalu mengembalikan path file hasilnya.
-func Generate(periodLabel string, groups []ai.ReportGroup) (string, error) {
-	payload := reportPayload{PeriodLabel: periodLabel, Groups: groups}
+// styleNotes (bebas dari user, mis. "elegant minimalis") di-resolve ke ReportTheme konkret
+// di sisi Go supaya node script tidak perlu menebak-nebak warna sendiri.
+func Generate(periodLabel string, groups []ai.ReportGroup, styleNotes string) (string, error) {
+	theme := ai.DetectTheme(styleNotes)
+	payload := reportPayload{PeriodLabel: periodLabel, Groups: groups, Theme: theme}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("gagal menyiapkan data laporan: %w", err)

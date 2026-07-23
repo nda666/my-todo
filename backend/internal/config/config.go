@@ -1,3 +1,4 @@
+// backend/internal/config/config.go
 package config
 
 import (
@@ -23,6 +24,7 @@ type Config struct {
 	NimModel           string
 	OpenRouterAPIKey   string
 	OpenRouterModel    string
+	CarboneBaseURL     string // <-- ganti dari CarboneAPIKey, self-hosted tidak butuh API key
 }
 
 func Load() (*Config, error) {
@@ -44,6 +46,7 @@ func Load() (*Config, error) {
 		DoranAPIKey:        getEnv("DORAN_API_KEY", "doran_data"),
 		DoranAuthBaseURL:   getEnv("DORAN_AUTH_BASE_URL", "https://api.doran.id/api/doranbackend"),
 		DoranOfficeBaseURL: getEnv("DORAN_OFFICE_BASE_URL", "https://jeoffice.doran.id/api"),
+		CarboneBaseURL:     getEnv("CARBONE_BASE_URL", "http://localhost:4000"),
 	}
 
 	if cfg.DBDatabase == "" {
