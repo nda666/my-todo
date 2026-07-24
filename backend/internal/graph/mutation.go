@@ -449,7 +449,7 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 				var teamMembers []ai.TeamMember
 
 				if pegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, claims.PegawaiKode); err == nil {
-					// isLeader = pegawai.StatusLeader == 1
+					isLeader = pegawai.StatusLeader == 1
 					if pegawai.Jabatan != nil {
 						jabatanNama = pegawai.Jabatan.Nama
 					}

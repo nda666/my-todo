@@ -1,4 +1,4 @@
-// backend/mcp/pptxgen-mcp/index.js
+// backend/mcp/pptxgen-mcp/index.js — full file
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const {
   StdioServerTransport,
@@ -8,8 +8,9 @@ const PptxGenJS = require("pptxgenjs");
 const crypto = require("crypto");
 const https = require("https");
 const http = require("http");
+const { LAYOUT_BUILDERS } = require("./layouts");
 
-const server = new McpServer({ name: "pptxgen-mcp", version: "1.2.0" });
+const server = new McpServer({ name: "pptxgen-mcp", version: "2.0.0" });
 const presentations = new Map();
 
 function getPresentation(id) {
@@ -21,293 +22,272 @@ function getPresentation(id) {
   return p;
 }
 
-// Ambil gambar dari URL (mis. picsum.photos) dan konversi ke base64 data-URI, supaya
-// pptxgenjs bisa embed langsung ke file tanpa bergantung koneksi internet saat file dibuka.
-function fetchImageAsDataUri(url) {
+function fetchUrl(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      reject(new Error(`terlalu banyak redirect (>5): ${url}`));
+      return;
+    }
     const lib = url.startsWith("https") ? https : http;
-    lib
-      .get(url, { headers: { "User-Agent": "pptxgen-mcp" } }, (res) => {
+    console.error(`[pptxgen-mcp] GET ${url} (redirect #${redirectCount})`);
+
+    const req = lib.get(
+      url,
+      { headers: { "User-Agent": "pptxgen-mcp/1.0" }, timeout: 10000 },
+      (res) => {
         if (
           res.statusCode >= 300 &&
           res.statusCode < 400 &&
           res.headers.location
         ) {
-          fetchImageAsDataUri(res.headers.location).then(resolve, reject);
+          let nextUrl;
+          try {
+            nextUrl = new URL(res.headers.location, url).href;
+          } catch (err) {
+            res.resume();
+            reject(
+              new Error(
+                `Location header tidak valid: "${res.headers.location}" (dari ${url})`,
+              ),
+            );
+            return;
+          }
+          console.error(
+            `[pptxgen-mcp] redirect ${res.statusCode} -> ${nextUrl}`,
+          );
+          res.resume();
+          fetchUrl(nextUrl, redirectCount + 1).then(resolve, reject);
           return;
         }
         if (res.statusCode !== 200) {
-          reject(
-            new Error(`gagal mengunduh gambar (${res.statusCode}): ${url}`),
-          );
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            reject(
+              new Error(
+                `HTTP ${res.statusCode} saat GET ${url} - body: ${Buffer.concat(chunks).toString("utf-8").slice(0, 300)}`,
+              ),
+            );
+          });
           return;
         }
-        const contentType = res.headers["content-type"] || "image/jpeg";
+        const contentType =
+          res.headers["content-type"] || "application/octet-stream";
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
-          const b64 = Buffer.concat(chunks).toString("base64");
-          resolve(`data:${contentType};base64,${b64}`);
+          console.error(
+            `[pptxgen-mcp] sukses GET ${url} — ${contentType}, ${Buffer.concat(chunks).length} bytes`,
+          );
+          resolve({ buffer: Buffer.concat(chunks), contentType });
         });
         res.on("error", reject);
-      })
-      .on("error", reject);
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error(`timeout 10s GET ${url}`)));
+    req.on("error", (err) => {
+      console.error(`[pptxgen-mcp] fetchUrl gagal: ${url} -> ${err.message}`);
+      reject(err);
+    });
   });
+}
+
+async function fetchAsDataUri(url, retries = 1) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { buffer, contentType } = await fetchUrl(url);
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    } catch (err) {
+      lastErr = err;
+      console.error(
+        `[pptxgen-mcp] percobaan ${attempt + 1}/${retries + 1} gagal untuk ${url}: ${err.message}`,
+      );
+    }
+  }
+  throw lastErr;
 }
 
 server.tool(
   "create_presentation",
-  "Membuat presentasi PowerPoint baru dan mengembalikan presentationId. WAJIB dipanggil pertama kali sebelum tool lain.",
+  "Membuat presentasi PowerPoint baru + set palet warna (theme) yang WAJIB dipakai konsisten di " +
+    "SEMUA slide berikutnya (parameter 'theme'). Background slide TIDAK berubah-ubah antar slide - " +
+    "hanya 2 mode: 'primary' (dipakai title_cover/section_header/closing) dan 'background' (dipakai " +
+    "stat_cards/chart_focus/content_columns) - keduanya sudah otomatis dijamin kontras dengan teks di atasnya. " +
+    "WAJIB dipanggil pertama kali.",
   {
     title: z.string(),
     author: z.string().optional(),
-    layout: z.enum(["WIDESCREEN", "STANDARD"]).optional(),
+    theme: z
+      .object({
+        primary: z
+          .string()
+          .describe(
+            "hex tanpa # - warna solid untuk slide judul/divider/penutup (boleh gelap atau terang)",
+          ),
+        accent: z
+          .string()
+          .describe("hex tanpa # - warna aksen kontras untuk garis/highlight"),
+        background: z
+          .string()
+          .describe(
+            "hex tanpa # - warna latar slide konten (stat_cards/chart_focus/content_columns), SELALU dipakai sama di semua slide konten",
+          ),
+        textColor: z
+          .string()
+          .describe(
+            "hex tanpa # - warna teks di atas 'background' KALAU background terang; diabaikan otomatis kalau background ternyata gelap (sistem pilih putih otomatis)",
+          ),
+        mutedColor: z
+          .string()
+          .describe(
+            "hex tanpa # - warna teks sekunder di atas 'background' terang",
+          ),
+        fontFace: z.string().optional().describe("default 'Calibri'"),
+      })
+      .describe(
+        "Palet 2-3 warna KONSISTEN untuk SELURUH presentasi - JANGAN ganti warna primary/background antar slide",
+      ),
   },
-  async ({ title, author, layout }) => {
+  async ({ title, author, theme }) => {
     const pptx = new PptxGenJS();
     pptx.defineLayout({ name: "WIDESCREEN", width: 10, height: 5.63 });
-    pptx.layout = layout === "STANDARD" ? "LAYOUT_4x3" : "WIDESCREEN";
+    pptx.layout = "WIDESCREEN";
     pptx.title = title;
     pptx.author = author || "Dora - Doran Todo Assistant";
     const id = crypto.randomUUID();
-    presentations.set(id, { pptx, slideCount: 0 });
+    presentations.set(id, { pptx, slideCount: 0, theme });
     return {
-      content: [{ type: "text", text: JSON.stringify({ presentationId: id }) }],
+      content: [
+        { type: "text", text: JSON.stringify({ presentationId: id, theme }) },
+      ],
     };
   },
 );
 
-const textElement = z.object({
-  type: z.literal("text"),
-  text: z.string(),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-  fontSize: z.number().optional(),
-  bold: z.boolean().optional(),
-  italic: z.boolean().optional(),
-  color: z.string().optional(),
-  align: z.enum(["left", "center", "right"]).optional(),
-  valign: z.enum(["top", "middle", "bottom"]).optional(),
-  fontFace: z.string().optional(),
-  bullet: z.boolean().optional(),
-  charSpacing: z.number().optional(),
-  lineSpacing: z.number().optional(),
-  shadow: z
-    .boolean()
-    .optional()
-    .describe(
-      "Beri drop shadow tipis pada teks, cocok untuk judul di atas gambar/warna gelap",
-    ),
-});
+const iconSchema = z.object({ set: z.string(), name: z.string() }).optional();
 
-const shapeElement = z.object({
-  type: z.literal("shape"),
-  shapeType: z.enum(["rect", "roundRect", "oval", "line"]),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-  fillColor: z.string().optional(),
-  lineColor: z.string().optional(),
-  transparency: z
-    .number()
-    .optional()
-    .describe(
-      "0-100, dipakai untuk overlay gelap transparan di atas gambar supaya teks tetap terbaca",
-    ),
-  shadow: z
-    .boolean()
-    .optional()
-    .describe(
-      "Beri drop shadow tipis, bikin shape terlihat 'mengambang' (elevated)",
-    ),
-});
-
-const tableElement = z.object({
-  type: z.literal("table"),
-  rows: z.array(z.array(z.string())),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  hasHeader: z.boolean().optional(),
-  headerColor: z.string().optional(),
-  fontSize: z.number().optional(),
-});
-
-const chartElement = z.object({
-  type: z.literal("chart"),
-  chartType: z.enum(["bar", "pie", "doughnut", "line"]),
-  labels: z
-    .array(z.string())
-    .describe("Label tiap kategori/slice, mis. nama target"),
-  values: z
-    .array(z.number())
-    .describe("Nilai numerik sejajar dengan labels, mis. percentDone"),
-  seriesName: z.string().optional(),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-  colors: z
-    .array(z.string())
-    .optional()
-    .describe("Hex warna tanpa # per slice/bar, urut sesuai labels"),
-  showLegend: z.boolean().optional(),
-  showDataLabels: z.boolean().optional(),
-});
-
-const imageElement = z.object({
-  type: z.literal("image"),
-  url: z
-    .string()
-    .describe(
-      "URL gambar publik, mis. dari https://picsum.photos/1600/900 atau https://picsum.photos/seed/{kata-kunci}/1600/900 untuk hasil konsisten",
-    ),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-});
-
-const elementSchema = z.union([
-  textElement,
-  shapeElement,
-  tableElement,
-  chartElement,
-  imageElement,
-]);
-
-async function applyElement(slide, pptx, el) {
-  if (el.type === "text") {
-    slide.addText(el.text, {
-      x: el.x,
-      y: el.y,
-      w: el.w,
-      h: el.h,
-      fontSize: el.fontSize || 14,
-      bold: !!el.bold,
-      italic: !!el.italic,
-      color: el.color || "1E293B",
-      align: el.align || "left",
-      valign: el.valign || "top",
-      fontFace: el.fontFace || "Calibri",
-      bullet: !!el.bullet,
-      charSpacing: el.charSpacing,
-      lineSpacing: el.lineSpacing,
-      shadow: el.shadow
-        ? {
-            type: "outer",
-            color: "000000",
-            opacity: 0.35,
-            blur: 3,
-            offset: 2,
-            angle: 45,
-          }
-        : undefined,
-    });
-  } else if (el.type === "shape") {
-    const map = {
-      rect: pptx.ShapeType.rect,
-      roundRect: pptx.ShapeType.roundRect,
-      oval: pptx.ShapeType.ellipse,
-      line: pptx.ShapeType.line,
-    };
-    slide.addShape(map[el.shapeType], {
-      x: el.x,
-      y: el.y,
-      w: el.w,
-      h: el.h,
-      fill: el.fillColor
-        ? { color: el.fillColor, transparency: el.transparency || 0 }
-        : undefined,
-      line: el.lineColor ? { color: el.lineColor } : undefined,
-      shadow: el.shadow
-        ? {
-            type: "outer",
-            color: "000000",
-            opacity: 0.25,
-            blur: 6,
-            offset: 3,
-            angle: 45,
-          }
-        : undefined,
-    });
-  } else if (el.type === "table") {
-    const tableRows = el.rows.map((row, ri) =>
-      row.map((cell) => ({
-        text: cell,
-        options:
-          el.hasHeader && ri === 0
-            ? {
-                bold: true,
-                color: "FFFFFF",
-                fill: { color: el.headerColor || "1E293B" },
-                fontSize: el.fontSize || 12,
-              }
-            : { fontSize: el.fontSize || 12, color: "1E293B" },
-      })),
-    );
-    slide.addTable(tableRows, { x: el.x, y: el.y, w: el.w, autoPage: false });
-  } else if (el.type === "chart") {
-    const chartTypeMap = {
-      bar: pptx.ChartType.bar,
-      pie: pptx.ChartType.pie,
-      doughnut: pptx.ChartType.doughnut,
-      line: pptx.ChartType.line,
-    };
-    const chartData = [
-      { name: el.seriesName || "Data", labels: el.labels, values: el.values },
-    ];
-    slide.addChart(chartTypeMap[el.chartType], chartData, {
-      x: el.x,
-      y: el.y,
-      w: el.w,
-      h: el.h,
-      showLegend: el.showLegend !== false,
-      showValue: !!el.showDataLabels,
-      chartColors: el.colors && el.colors.length ? el.colors : undefined,
-      legendPos: "b",
-    });
-  } else if (el.type === "image") {
-    const dataUri = await fetchImageAsDataUri(el.url);
-    slide.addImage({ data: dataUri, x: el.x, y: el.y, w: el.w, h: el.h });
-  }
-}
-
-server.tool(
-  "build_slide",
-  "Membuat SATU slide baru berikut SEMUA elemennya (teks, shape, tabel, chart, image) dalam SATU panggilan. " +
-    "WAJIB dipakai untuk membangun slide - JANGAN pisah jadi tool terpisah per elemen. Elemen digambar berurutan " +
-    "sesuai urutan array (elemen belakangan menimpa/tumpang tindih elemen depan - manfaatkan untuk overlay). " +
-    "Kanvas WIDESCREEN 10 x 5.63 inch, x/y/w/h dalam inch.",
-  {
-    presentationId: z.string(),
-    backgroundColor: z
+const layoutSchemas = {
+  title_cover: z.object({
+    title: z.string(),
+    subtitle: z.string().optional(),
+    eyebrow: z.string().optional(),
+    imageSeed: z
       .string()
       .optional()
+      .describe("kata kunci untuk foto background, mis. 'business-team'"),
+  }),
+  section_header: z.object({
+    title: z.string(),
+    eyebrow: z.string().optional(),
+    icon: iconSchema,
+  }),
+  stat_cards: z.object({
+    title: z.string(),
+    cards: z
+      .array(
+        z.object({
+          value: z.string().describe("angka besar, mis. '90%' atau '12'"),
+          label: z.string(),
+          detail: z.string().optional(),
+          icon: iconSchema,
+          accentColor: z
+            .string()
+            .optional()
+            .describe("hex tanpa #, default theme.primary"),
+        }),
+      )
+      .min(2)
+      .max(4),
+  }),
+  chart_focus: z.object({
+    title: z.string(),
+    chartType: z.enum(["bar", "pie", "doughnut", "line"]).optional(),
+    labels: z.array(z.string()),
+    values: z.array(z.number()),
+    seriesName: z.string().optional(),
+    colors: z.array(z.string()).optional(),
+    sidePoints: z
+      .array(z.object({ label: z.string(), value: z.string() }))
+      .optional(),
+  }),
+  content_columns: z.object({
+    title: z.string(),
+    columns: z
+      .array(
+        z.object({
+          heading: z.string(),
+          items: z.array(z.string()),
+          icon: iconSchema,
+          accentColor: z.string().optional(),
+        }),
+      )
+      .min(1)
+      .max(3),
+  }),
+  closing: z.object({
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+  }),
+};
+
+const layoutNames = Object.keys(layoutSchemas);
+
+server.tool(
+  "build_slide_from_layout",
+  "Membuat SATU slide memakai TEMPLATE LAYOUT siap pakai (posisi/grid/spacing sudah didesain profesional, " +
+    "kamu HANYA mengisi konten). Pilih 'layout' paling cocok:\n" +
+    "- title_cover: slide judul/cover dengan foto background\n" +
+    "- section_header: divider antar-bagian, panel warna solid + ikon besar\n" +
+    "- stat_cards: 2-4 kartu statistik sejajar (angka besar + label + ikon)\n" +
+    "- chart_focus: chart besar di kiri + ringkasan poin di kanan\n" +
+    "- content_columns: 1-3 kolom teks berjudul (untuk daftar task/kendala/rencana)\n" +
+    "- closing: slide penutup\n" +
+    "JANGAN PERNAH mengirim x/y/w/h manual - layout ini yang mengatur semua posisi otomatis.",
+  {
+    presentationId: z.string(),
+    layout: z.enum(layoutNames),
+    props: z
+      .record(z.any())
       .describe(
-        "hex tanpa # mis. 'FFFFFF', default putih. Diabaikan kalau ada elemen image full-bleed.",
+        "Isi konten sesuai skema layout yang dipilih (lihat deskripsi tiap layout)",
       ),
-    elements: z.array(elementSchema),
   },
-  async ({ presentationId, backgroundColor, elements }) => {
+  async ({ presentationId, layout, props }) => {
     const p = getPresentation(presentationId);
-    const slide = p.pptx.addSlide();
-    if (backgroundColor) slide.background = { color: backgroundColor };
-    for (const el of elements) {
-      await applyElement(slide, p.pptx, el);
+    const schema = layoutSchemas[layout];
+    const parsed = schema.safeParse(props);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `props tidak valid untuk layout '${layout}': ${JSON.stringify(parsed.error.issues)}`,
+          },
+        ],
+      };
     }
+
+    const slide = p.pptx.addSlide();
+    const builder = LAYOUT_BUILDERS[layout];
+    try {
+      await builder(
+        slide,
+        p.pptx,
+        { fetchAsDataUri },
+        { ...parsed.data, theme: p.theme },
+      );
+    } catch (err) {
+      console.error(
+        `[pptxgen-mcp] layout '${layout}' gagal sebagian: ${err.message}`,
+      );
+    }
+
     const slideIndex = p.slideCount;
     p.slideCount += 1;
     return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ slideIndex, elementsAdded: elements.length }),
-        },
-      ],
+      content: [{ type: "text", text: JSON.stringify({ slideIndex, layout }) }],
     };
   },
 );

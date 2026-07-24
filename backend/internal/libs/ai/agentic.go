@@ -195,7 +195,21 @@ func (c *AgenticClient) step(ctx context.Context, messages []json.RawMessage, to
 	if err := json.Unmarshal(rawMsg, &parsed); err != nil {
 		return nil, minimalMessage{}, fmt.Errorf("gagal parse message: %w", err)
 	}
-	log.Printf("[AI-Agentic] step SUCCESS — model=%s tool_calls=%d", c.model, len(parsed.ToolCalls))
+
+	// Log response AI — content + tool_calls
+	if parsed.Content != "" {
+		log.Printf("[AI-Agentic] step RESPONSE — model=%s content=%q", c.model, parsed.Content)
+	} else {
+		log.Printf("[AI-Agentic] step RESPONSE — model=%s content=<empty>", c.model)
+	}
+	if len(parsed.ToolCalls) > 0 {
+		for _, tc := range parsed.ToolCalls {
+			log.Printf("[AI-Agentic] step TOOL_CALL — id=%s name=%s arguments=%s", tc.ID, tc.Function.Name, tc.Function.Arguments)
+		}
+	} else {
+		log.Printf("[AI-Agentic] step NO_TOOL_CALLS — model=%s", c.model)
+	}
+
 	return rawMsg, parsed, nil
 }
 
@@ -236,16 +250,19 @@ func (c *AgenticClient) RunAgentLoop(ctx context.Context, systemPrompt, userProm
 	var toolMsgIndexes []int
 
 	for step := 0; step < maxSteps; step++ {
+		log.Printf("[AI-Agentic] RunAgentLoop — step=%d/%d messages=%d", step+1, maxSteps, len(messages))
 		rawReply, parsed, err := c.stepWithRetry(ctx, messages, agenticTools, maxRateLimitRetries)
 		if err != nil {
 			return "", err
 		}
 
 		if len(parsed.ToolCalls) == 0 {
+			log.Printf("[AI-Agentic] RunAgentLoop — step=%d model berhenti tanpa tool calls, content=%q", step+1, parsed.Content)
 			return "", fmt.Errorf("model berhenti tanpa menyelesaikan presentasi (respons: %s)", parsed.Content)
 		}
 
 		messages = append(messages, rawReply)
+		log.Printf("[AI-Agentic] RunAgentLoop — step=%d tool_calls=%d diproses", step+1, len(parsed.ToolCalls))
 
 		for _, tc := range parsed.ToolCalls {
 			result, execErr := exec(ctx, tc.Function.Name, tc.Function.Arguments)

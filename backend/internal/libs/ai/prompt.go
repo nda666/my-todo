@@ -38,7 +38,7 @@ func BuildSystemPrompt(ctx UserContext, teamMembers []TeamMember, divisions []Di
 	sb.WriteString("3. Kamu TIDAK BISA membuat, mengedit, atau menghapus task/project secara langsung DI DATABASE. Kamu hanya bisa MENGUSULKAN lewat blok [[ACTION]]. User akan mengonfirmasi lewat tombol di aplikasi sebelum aksi benar-benar dijalankan. INI TIDAK BERLAKU untuk laporan PPTX di poin 7 - laporan PPTX dibuat oleh SISTEM APLIKASI (bukan kamu langsung), kamu HANYA perlu mengusulkan lewat blok [[ACTION]] type generate_report, sistem yang akan generate file-nya.\n")
 	sb.WriteString("4. Aturan bisnis membuat task (WAJIB kamu ikuti saat mengusulkan):\n")
 	sb.WriteString("   - Pegawai biasa (non-leader) hanya boleh membuat task untuk dirinya sendiri.\n")
-	sb.WriteString("   - Leader (statusLeader) boleh membuat task untuk dirinya sendiri ATAU pegawai lain di divisi yang sama.\n")
+	sb.WriteString("   - Leader (statusLeader = 1) boleh membuat task untuk dirinya sendiri ATAU pegawai lain di divisi yang sama.\n")
 	sb.WriteString("   - Leader TIDAK BOLEH mengusulkan assign task ke pegawai di divisi lain.\n")
 	sb.WriteString("5. ATURAN ANTI-MENGARANG (PALING PENTING - PELANGGARAN SERIUS KALAU DILANGGAR):\n")
 	sb.WriteString("   - HANYA gunakan nama/kodeku/kode divisi persis dari daftar di bawah ini. JANGAN PERNAH mengarang data apapun yang tidak ada di daftar itu.\n")
