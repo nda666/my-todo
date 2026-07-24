@@ -1,3 +1,4 @@
+// backend/internal/httpapi/report_handler.go
 package httpapi
 
 import (
@@ -13,8 +14,7 @@ import (
 	"golang-todo/internal/repository"
 )
 
-// backend/internal/httpapi/report_handler.go — only the Generate call + style param changed
-func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) http.HandlerFunc {
+func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client, agenticClient *ai.AgenticClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, err := auth.RequireUser(r.Context())
 		if err != nil {
@@ -24,7 +24,8 @@ func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) h
 
 		startStr := r.URL.Query().Get("start")
 		endStr := r.URL.Query().Get("end")
-		styleNotes := r.URL.Query().Get("style") // <-- baru, opsional
+		// sessionId := r.URL.Query().Get("session_id")
+		styleNotes := r.URL.Query().Get("style")
 		start, err1 := time.Parse("2006-01-02", startStr)
 		end, err2 := time.Parse("2006-01-02", endStr)
 		if err1 != nil || err2 != nil {
@@ -69,7 +70,7 @@ func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) h
 			summaries[i] = ai.TaskSummaryInput{OwnerName: ownerName, Title: t.Title, Status: status}
 		}
 
-		groups, err := ai.GroupTasksForReport(r.Context(), aiClient, summaries)
+		groups, err := ai.GroupTasksForReport(r.Context(), aiClient, claims.Kodeku, summaries)
 		if err != nil {
 			http.Error(w, "gagal mengelompokkan data laporan: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -77,7 +78,7 @@ func GenerateReportHandler(repos *repository.Repositories, aiClient ai.Client) h
 
 		periodLabel := fmt.Sprintf("%s - %s", start.Format("2 Jan 2006"), end.Format("2 Jan 2006"))
 
-		outputPath, err := reportgen.Generate(periodLabel, groups, styleNotes)
+		outputPath, err := reportgen.Generate(r.Context(), agenticClient, periodLabel, groups, styleNotes)
 		if err != nil {
 			http.Error(w, "gagal membuat file presentasi: "+err.Error(), http.StatusInternalServerError)
 			return

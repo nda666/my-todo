@@ -269,9 +269,10 @@ export const GET_TEAMS_SUMMARY = gql`
 `;
 
 // frontend/src/lib/queries.ts — only ASK_DORA changed, rest of file unchanged
+// frontend/src/lib/queries.ts — hanya ASK_DORA yang berubah
 export const ASK_DORA = gql`
-  mutation AskDora($message: String!, $history: [DoraMessageInput!]) {
-    askDora(message: $message, history: $history) {
+  mutation AskDora($message: String!, $sessionId: String!) {
+    askDora(message: $message, sessionId: $sessionId) {
       reply
       suggestedAction {
         type

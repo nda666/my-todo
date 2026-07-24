@@ -27,7 +27,8 @@ type groupingResult struct {
 // GroupTasksForReport mengirim daftar task ke LLM untuk dikelompokkan berdasarkan
 // target/proyek yang disebut di judul/deskripsi task, lalu hitung persentase selesainya.
 // Desain slide TETAP dikontrol kode Go - LLM hanya bertugas mengelompokkan data, bukan membuat visual.
-func GroupTasksForReport(ctx context.Context, client Client, tasks []TaskSummaryInput) ([]ReportGroup, error) {
+// backend/internal/libs/ai/grouping.go — hanya signature GroupTasksForReport & pemanggilan client.Complete yang berubah
+func GroupTasksForReport(ctx context.Context, client Client, sessionId string, tasks []TaskSummaryInput) ([]ReportGroup, error) {
 	var sb strings.Builder
 	sb.WriteString("Kelompokkan daftar task berikut berdasarkan target/proyek/aplikasi yang disebut di judulnya ")
 	sb.WriteString("(misal task yang menyebut 'Aplikasi POS' masuk grup 'Aplikasi POS'). ")
@@ -43,7 +44,7 @@ func GroupTasksForReport(ctx context.Context, client Client, tasks []TaskSummary
 	reply, err := client.Complete(ctx, []ChatMessage{
 		{Role: "system", Content: "Kamu adalah alat pengelompokan data. Balas hanya JSON valid, tidak ada teks lain."},
 		{Role: "user", Content: sb.String()},
-	})
+	}, sessionId)
 	if err != nil {
 		return nil, err
 	}

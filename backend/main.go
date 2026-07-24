@@ -1,4 +1,4 @@
-// backend/main.go — only the relevant additions, rest of file unchanged
+// backend/main.go
 package main
 
 import (
@@ -39,9 +39,16 @@ func main() {
 	authService := auth.NewService(cfg, doranClient)
 
 	aiClient := &ai.FallbackClient{
-		Secondary: ai.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
-		Primary:   ai.NewNimClient(cfg.NimAPIKey, cfg.NimModel),
+		Providers: []ai.Client{
+			ai.NewGeminiClient(cfg.GeminiAPIKey, cfg.GeminiModel),
+			ai.NewOpenRouterClient(cfg.OpenRouterAPIKey, cfg.OpenRouterModel),
+			ai.NewNimClient(cfg.NimAPIKey, cfg.NimModel),
+		},
 	}
+	// Client terpisah khusus tool-calling, dipakai Dora untuk membangun file .pptx
+	// sendiri lewat MCP pptxgen. OpenRouter dipilih karena dukungan function-calling
+	// lebih luas lintas model dibanding NIM.
+	agenticClient := ai.NewAgenticGeminiClient(cfg.GeminiAPIKey, cfg.GeminiModel)
 
 	projectPolicy := auth.NewProjectPolicy(repos.Project, repos.Pegawai)
 	schema, err := graph.NewSchema(repos, authService, aiClient, projectPolicy)
@@ -57,7 +64,7 @@ func main() {
 	})
 
 	http.Handle("/api/upload-avatar", authMiddleware(authService, httpapi.UploadAvatarHandler(repos)))
-	http.Handle("/api/reports/team-summary", authMiddleware(authService, httpapi.GenerateReportHandler(repos, aiClient)))
+	http.Handle("/api/reports/team-summary", authMiddleware(authService, httpapi.GenerateReportHandler(repos, aiClient, agenticClient)))
 	http.Handle("/query", authMiddleware(authService, h))
 
 	c := cors.New(cors.Options{

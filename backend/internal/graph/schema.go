@@ -1,7 +1,9 @@
+// backend/internal/graph/schema.go — inisialisasi SessionStore, dilewatkan sebagai package-level var yang dipakai mutation.go
 package graph
 
 import (
 	"fmt"
+	"time"
 
 	"golang-todo/internal/auth"
 	"golang-todo/internal/libs/ai"
@@ -9,6 +11,10 @@ import (
 
 	"github.com/graphql-go/graphql"
 )
+
+// doraSessions menyimpan riwayat chat Dora per sessionId (TTL 60 menit, maks 8 turn
+// terakhir yang dikirim ke model) - inti dari solusi hemat token di percakapan ini.
+var doraSessions = ai.NewSessionStore(60*time.Minute, 8)
 
 type Schema struct {
 	Schema graphql.Schema

@@ -29,10 +29,7 @@ import {
     INVITE_DIVISION,
 } from '../lib/queries';
 import { downloadTeamReport } from '../lib/report';
-import {
-    DoraMessage,
-    DoraSuggestedAction,
-} from '../types/dora';
+import { DoraSuggestedAction } from '../types/dora';
 
 const { TextArea } = Input
 
@@ -48,6 +45,7 @@ export default function DoraWidget() {
     const [messages, setMessages] = useState<ChatEntry[]>([
         { role: 'assistant', content: 'Hai, aku Dora — asisten Doran Todo. Aku bisa bantu kamu bikin task (satu atau banyak sekaligus), bikin project, cek status, atau jelasin fitur di aplikasi ini. Ada yang bisa dibantu?' },
     ])
+    const [sessionId] = useState(() => crypto.randomUUID())
     const [downloading, setDownloading] = useState(false)
     const [input, setInput] = useState('')
     const [sending, setSending] = useState(false)
@@ -93,9 +91,8 @@ export default function DoraWidget() {
         setSending(true)
 
         try {
-            const history: DoraMessage[] = messages.map((m) => ({ role: m.role, content: m.content }))
             const resp = await askDoraMutation({
-                variables: { message: text, history },
+                variables: { message: text, sessionId },
             }).then((r) => r.data.askDora)
 
             setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, action: resp.suggestedAction }])
@@ -111,7 +108,7 @@ export default function DoraWidget() {
         if (!action.startDate || !action.endDate) return
         setDownloading(true)
         try {
-            await downloadTeamReport(action.startDate, action.endDate, action.styleNotes)
+            await downloadTeamReport(action.startDate, action.endDate, sessionId, action.styleNotes)
             message.success('Laporan berhasil diunduh!')
         } catch (err: any) {
             message.error(err.message || 'Gagal membuat laporan')

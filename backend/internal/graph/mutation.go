@@ -435,8 +435,8 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 		"askDora": &graphql.Field{
 			Type: t.DoraResponseType,
 			Args: graphql.FieldConfigArgument{
-				"message": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
-				"history": &graphql.ArgumentConfig{Type: graphql.NewList(t.DoraMessageInputType)},
+				"message":   &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+				"sessionId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}, // <-- ganti dari "history"
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				claims, err := auth.RequireUser(p.Context)
@@ -449,14 +449,12 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 				var teamMembers []ai.TeamMember
 
 				if pegawai, err := repos.Pegawai.FindByKode(p.Context, claims.ExternalToken, claims.KodeDivisi, claims.PegawaiKode); err == nil {
-					isLeader = pegawai.StatusLeader == 1
+					// isLeader = pegawai.StatusLeader == 1
 					if pegawai.Jabatan != nil {
 						jabatanNama = pegawai.Jabatan.Nama
 					}
 				}
 
-				// Selalu ambil daftar rekan kerja (untuk keperluan informasi/read-only),
-				// terlepas dari status leader. Otorisasi assign tetap dijaga ketat di resolver createTask.
 				if members, err := repos.Pegawai.FindByDivisi(p.Context, claims.ExternalToken, claims.KodeDivisi); err == nil {
 					for _, m := range members {
 						if m.Kode != claims.PegawaiKode {
@@ -474,37 +472,33 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 					}
 				}
 
+				today := time.Now().Format("2006-01-02")
 				systemPrompt := ai.BuildSystemPrompt(ai.UserContext{
 					Kodeku:     claims.Kodeku,
 					Nama:       claims.Fullname,
 					Jabatan:    jabatanNama,
 					DivisiNama: claims.NamaDivisi,
 					IsLeader:   isLeader,
-				}, teamMembers, divisionInfos)
+				}, teamMembers, divisionInfos, today)
 
-				today := time.Now().Format("2006-01-02")
+				sessionID := claims.Kodeku + ":" + p.Args["sessionId"].(string)
+
 				messages := []ai.ChatMessage{
 					{Role: "system", Content: systemPrompt},
-					{Role: "system", Content: fmt.Sprintf("Tanggal hari ini adalah %s. Gunakan ini untuk menghitung rentang waktu relatif seperti '1 bulan terakhir'.", today)},
 				}
 
-				if historyRaw, ok := p.Args["history"].([]interface{}); ok {
-					for _, raw := range historyRaw {
-						h := raw.(map[string]interface{})
-						messages = append(messages, ai.ChatMessage{
-							Role:    h["role"].(string),
-							Content: h["content"].(string),
-						})
-					}
-				}
-				messages = append(messages, ai.ChatMessage{Role: "user", Content: p.Args["message"].(string)})
+				messages = append(messages, doraSessions.History(sessionID)...)
 
-				rawReply, err := aiClient.Complete(p.Context, messages)
+				userMsg := ai.ChatMessage{Role: "user", Content: p.Args["message"].(string)}
+				messages = append(messages, userMsg)
+
+				rawReply, err := aiClient.Complete(p.Context, messages, sessionID)
 				if err != nil {
-					return nil, fmt.Errorf("Dora sedang tidak bisa merespons, coba lagi sebentar lagi %s", err)
+					return nil, fmt.Errorf("Dora sedang tidak bisa merespons, coba lagi sebentar lagi")
 				}
 
 				cleanReply, action := ai.ExtractAction(rawReply)
+				doraSessions.Append(sessionID, userMsg, ai.ChatMessage{Role: "assistant", Content: rawReply})
 
 				result := map[string]interface{}{"reply": cleanReply}
 				if action != nil {
@@ -519,7 +513,6 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 						suggested["startDate"] = action.StartDate
 						suggested["endDate"] = action.EndDate
 						suggested["styleNotes"] = action.StyleNotes
-
 					case "create_task_batch":
 						tasks := make([]map[string]interface{}, len(action.Tasks))
 						for i, item := range action.Tasks {
@@ -531,7 +524,6 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 						}
 						suggested["tasks"] = tasks
 					case "create_project":
-						// anti-halusinasi: hanya loloskan kode divisi yang benar-benar ada di daftar yang dikirim ke AI
 						validKodes := make(map[int]bool, len(divisionInfos))
 						for _, d := range divisionInfos {
 							validKodes[d.Kode] = true
@@ -544,7 +536,6 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 						}
 						suggested["divisions"] = filtered
 					case "recommend_divisions":
-						// anti-halusinasi: validasi kode+nama terhadap data divisi asli, pakai nama dari server bukan dari AI
 						namaByKode := make(map[int]string, len(divisionInfos))
 						for _, d := range divisionInfos {
 							namaByKode[d.Kode] = d.Nama

@@ -24,7 +24,8 @@ type Config struct {
 	NimModel           string
 	OpenRouterAPIKey   string
 	OpenRouterModel    string
-	CarboneBaseURL     string // <-- ganti dari CarboneAPIKey, self-hosted tidak butuh API key
+	GeminiAPIKey       string // <-- baru
+	GeminiModel        string // <-- baru
 }
 
 func Load() (*Config, error) {
@@ -43,10 +44,11 @@ func Load() (*Config, error) {
 		NimModel:           getEnv("NVIDIA_NIM_MODEL", ""),
 		OpenRouterAPIKey:   getEnv("OPENROUTER_API_KEY", ""),
 		OpenRouterModel:    getEnv("OPENROUTER_MODEL", ""),
+		GeminiAPIKey:       getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:        getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
 		DoranAPIKey:        getEnv("DORAN_API_KEY", "doran_data"),
 		DoranAuthBaseURL:   getEnv("DORAN_AUTH_BASE_URL", "https://api.doran.id/api/doranbackend"),
 		DoranOfficeBaseURL: getEnv("DORAN_OFFICE_BASE_URL", "https://jeoffice.doran.id/api"),
-		CarboneBaseURL:     getEnv("CARBONE_BASE_URL", "http://localhost:4000"),
 	}
 
 	if cfg.DBDatabase == "" {
