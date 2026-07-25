@@ -2,44 +2,45 @@
 import React, { useState } from 'react';
 
 import {
-  Button,
-  Popconfirm,
-  Select,
-  Table,
-  Tag,
+    Button,
+    Popconfirm,
+    Select,
+    Table,
+    Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import {
-  DeleteOutlined,
-  EditOutlined,
-  HolderOutlined,
+    DeleteOutlined,
+    EditOutlined,
+    HolderOutlined,
 } from '@ant-design/icons';
 import {
-  closestCenter,
-  DndContext,
-  DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
+    closestCenter,
+    DndContext,
+    DragEndEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
+    arrayMove,
+    SortableContext,
+    useSortable,
+    verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 import { STATUS_OPTIONS } from '../constants/taskStatus';
 import { CloudinaryUploadResult } from '../lib/cloudinary';
 import {
-  MetaDraft,
-  Task,
-  TaskStatus,
+    MetaDraft,
+    Task,
+    TaskStatus,
 } from '../types/task';
 import CommentThread from './CommentThread';
 import MetaDisplay from './MetaDisplay';
+import SubtaskList from './SubtaskList';
 import TaskEditModal from './TaskEditModal';
 
 interface UpdateTaskInput {
@@ -263,16 +264,21 @@ export default function TaskTable({
             } : undefined}
             expandable={{
                 expandedRowRender: (record) => (
-                    <div className="!bg-slate-50 dark:!bg-slate-950 p-3 rounded-lg !border !border-slate-100 dark:!border-slate-800">
-                        <div className="text-xs font-semibold !text-slate-500 dark:!text-slate-400 uppercase mb-2">
-                            Komentar ({record.comments?.length || 0})
+                    <div className="!bg-slate-50 dark:!bg-slate-950 p-4 rounded-lg !border !border-slate-100 dark:!border-slate-800 space-y-4">
+                        <div>
+                            <SubtaskList taskId={record.id} subtasks={record.subtasks || []} readOnly={!isRowEditable(record)} />
                         </div>
-                        <CommentThread
-                            taskId={record.id}
-                            comments={record.comments}
-                            onAddComment={onAddComment}
-                            onToggleReaction={onToggleReaction}
-                        />
+                        <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
+                            <div className="text-xs font-semibold !text-slate-500 dark:!text-slate-400 uppercase mb-2">
+                                Komentar ({record.comments?.length || 0})
+                            </div>
+                            <CommentThread
+                                taskId={record.id}
+                                comments={record.comments}
+                                onAddComment={onAddComment}
+                                onToggleReaction={onToggleReaction}
+                            />
+                        </div>
                     </div>
                 ),
             }}

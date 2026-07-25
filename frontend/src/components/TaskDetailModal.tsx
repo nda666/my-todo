@@ -13,6 +13,7 @@ import { CloudinaryUploadResult } from '../lib/cloudinary';
 import { Task } from '../types/task';
 import CommentThread from './CommentThread';
 import MetaDisplay from './MetaDisplay';
+import SubtaskList from './SubtaskList';
 
 const { Title, Paragraph, Text } = Typography
 
@@ -55,6 +56,10 @@ export default function TaskDetailModal({ open, task, onClose, readOnly, onAddCo
                     </div>
                 </div>
             )}
+
+            <div className="mb-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <SubtaskList taskId={task.id} subtasks={task.subtasks || []} readOnly={readOnly} />
+            </div>
 
             <div>
                 <div className="flex items-center gap-2 mb-2">

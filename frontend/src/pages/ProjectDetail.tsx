@@ -1,52 +1,52 @@
 // frontend/src/pages/ProjectDetail.tsx
 import React, {
-    useCallback,
-    useEffect,
-    useMemo,
-    useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
 } from 'react';
 
 import {
-    Button,
-    Collapse,
-    Empty,
-    message,
-    Segmented,
-    Select,
-    Spin,
-    Tag,
-    Typography,
+  Button,
+  Collapse,
+  Empty,
+  message,
+  Segmented,
+  Select,
+  Spin,
+  Tag,
+  Typography,
 } from 'antd';
 import {
-    useNavigate,
-    useParams,
+  useNavigate,
+  useParams,
 } from 'react-router-dom';
 
 import {
-    AppstoreOutlined,
-    CrownFilled,
-    PlusOutlined,
-    TableOutlined,
+  AppstoreOutlined,
+  CrownFilled,
+  PlusOutlined,
+  TableOutlined,
 } from '@ant-design/icons';
 import {
-    useApolloClient,
-    useMutation,
-    useQuery,
+  useApolloClient,
+  useMutation,
+  useQuery,
 } from '@apollo/client';
 import {
-    closestCenter,
-    DndContext,
-    DragEndEvent,
-    DragOverlay,
-    DragStartEvent,
-    PointerSensor,
-    useSensor,
-    useSensors,
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import {
-    arrayMove,
-    SortableContext,
-    verticalListSortingStrategy,
+  arrayMove,
+  SortableContext,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 
 import CreateTaskModal from '../components/CreateTaskModal';
@@ -56,27 +56,27 @@ import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeamHeader } from '../layouts/TeamLayout';
 import {
-    ADD_COMMENT,
-    ADD_PROJECT_LEADER,
-    CREATE_PROJECT_TASK,
-    DELETE_META,
-    DELETE_TASK,
-    GET_COLLEAGUES_BY_DIVISI,
-    GET_DIVISIONS,
-    GET_PROJECT,
-    GET_PROJECT_TASKS,
-    INVITE_DIVISION,
-    REMOVE_DIVISION,
-    REMOVE_PROJECT_LEADER,
-    REORDER_META,
-    REORDER_TASKS,
-    SET_META,
-    TOGGLE_REACTION,
-    UPDATE_TASK,
+  ADD_COMMENT,
+  ADD_PROJECT_LEADER,
+  CREATE_PROJECT_TASK,
+  DELETE_META,
+  DELETE_TASK,
+  GET_COLLEAGUES_BY_DIVISI,
+  GET_DIVISIONS,
+  GET_PROJECT,
+  GET_PROJECT_TASKS,
+  INVITE_DIVISION,
+  REMOVE_DIVISION,
+  REMOVE_PROJECT_LEADER,
+  REORDER_META,
+  REORDER_TASKS,
+  SET_META,
+  TOGGLE_REACTION,
+  UPDATE_TASK,
 } from '../lib/queries';
 import {
-    Colleague,
-    Task,
+  Colleague,
+  Task,
 } from '../types/task';
 
 const { Title, Text } = Typography
@@ -217,31 +217,33 @@ export default function ProjectDetail() {
         }).catch((err) => message.error(err.message || 'Gagal menghapus project leader'))
     }
 
-    const handleCreateTask = async (values: { title: string; description?: string; targetUserKode?: string; startDate?: string; dueDate?: string }) => {
-        if (!projectId) return
-        try {
-            await createProjectTask({
-                variables: {
-                    projectId,
-                    title: values.title,
-                    description: values.description || null,
-                    targetUserKode: values.targetUserKode || null,
-                    startDate: values.startDate || null,
-                    dueDate: values.dueDate || null,
-                },
-                update(cache, { data }) {
-                    cache.modify({
-                        fields: {
-                            projectTasks(existing = { tasks: [], nextCursor: null, hasMore: false }) {
-                                return { ...existing, tasks: [{ __ref: cache.identify(data.createProjectTask) }, ...existing.tasks] }
+    const handleCreateTask = async (values: { title: string; description?: string; targetUserKode?: string; startDate?: string; dueDate?: string; projectId?: string | null }) => {
+        const targetProjId = values.projectId !== undefined ? values.projectId : projectId
+        if (targetProjId) {
+            try {
+                await createProjectTask({
+                    variables: {
+                        projectId: targetProjId,
+                        title: values.title,
+                        description: values.description || null,
+                        targetUserKode: values.targetUserKode || null,
+                        startDate: values.startDate || null,
+                        dueDate: values.dueDate || null,
+                    },
+                    update(cache, { data }) {
+                        cache.modify({
+                            fields: {
+                                projectTasks(existing = { tasks: [], nextCursor: null, hasMore: false }) {
+                                    return { ...existing, tasks: [{ __ref: cache.identify(data.createProjectTask) }, ...existing.tasks] }
+                                },
                             },
-                        },
-                    })
-                },
-            })
-            setIsCreateTaskOpen(false)
-        } catch (err: any) {
-            message.error(err.message || 'Gagal membuat task')
+                        })
+                    },
+                })
+                setIsCreateTaskOpen(false)
+            } catch (err: any) {
+                message.error(err.message || 'Gagal membuat task')
+            }
         }
     }
 
@@ -480,7 +482,7 @@ export default function ProjectDetail() {
                                                             onSetMeta={handleSetMeta}
                                                             onDeleteMeta={handleDeleteMeta}
                                                             onReorderMeta={handleReorderMeta}
-                                                            readOnly
+                                                            readOnly={!canManageTask(task)}
                                                         />
                                                     ))}
                                                 </div>
@@ -499,6 +501,7 @@ export default function ProjectDetail() {
                 onCancel={() => setIsCreateTaskOpen(false)}
                 onCreate={handleCreateTask}
                 loading={creatingTask}
+                initialProjectId={projectId}
             />
         </>
     )

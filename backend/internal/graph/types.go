@@ -26,6 +26,8 @@ type Types struct {
 	TaskMetaType               *graphql.Object
 	TaskCommentType            *graphql.Object
 	TaskType                   *graphql.Object
+	SubtaskType                *graphql.Object
+	SubtaskStatusEnum          *graphql.Enum
 	TaskConnectionType         *graphql.Object
 	AuthPayloadType            *graphql.Object
 	ReactionSummaryType        *graphql.Object
@@ -35,6 +37,8 @@ type Types struct {
 	DoraSuggestedActionType    *graphql.Object
 	CreateTaskInput            *graphql.InputObject
 	UpdateTaskInput            *graphql.InputObject
+	CreateSubtaskInput         *graphql.InputObject
+	UpdateSubtaskInput         *graphql.InputObject
 	DoraMessageInputType       *graphql.InputObject
 	CommentAttachmentInputType *graphql.InputObject
 
@@ -51,6 +55,43 @@ func buildTypes() *Types {
 		},
 	})
 
+	subtaskStatusEnum := graphql.NewEnum(graphql.EnumConfig{
+		Name: "SubtaskStatus",
+		Values: graphql.EnumValueConfigMap{
+			"PENDING":   &graphql.EnumValueConfig{Value: models.SubtaskStatusPending},
+			"COMPLETED": &graphql.EnumValueConfig{Value: models.SubtaskStatusCompleted},
+		},
+	})
+
+	subtaskType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Subtask",
+		Fields: graphql.Fields{
+			"id":          &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"taskId":      &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"description": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"status":      &graphql.Field{Type: graphql.NewNonNull(subtaskStatusEnum)},
+			"sortOrder":   &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+			"createdAt":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"updatedAt":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
+	createSubtaskInput := graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "CreateSubtaskInput",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"taskId":      &graphql.InputObjectFieldConfig{Type: graphql.NewNonNull(graphql.ID)},
+			"description": &graphql.InputObjectFieldConfig{Type: graphql.NewNonNull(graphql.String)},
+			"status":      &graphql.InputObjectFieldConfig{Type: subtaskStatusEnum},
+		},
+	})
+
+	updateSubtaskInput := graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: "UpdateSubtaskInput",
+		Fields: graphql.InputObjectConfigFieldMap{
+			"description": &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"status":      &graphql.InputObjectFieldConfig{Type: subtaskStatusEnum},
+		},
+	})
 	jabatanType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Jabatan",
 		Fields: graphql.Fields{
@@ -211,6 +252,9 @@ func buildTypes() *Types {
 				"meta": &graphql.Field{
 					Type: graphql.NewList(graphql.NewNonNull(taskMetaType)),
 				},
+				"subtasks": &graphql.Field{
+					Type: graphql.NewList(graphql.NewNonNull(subtaskType)),
+				},
 			}
 		}),
 	})
@@ -262,7 +306,11 @@ func buildTypes() *Types {
 			"description":    &graphql.InputObjectFieldConfig{Type: graphql.String},
 			"status":         &graphql.InputObjectFieldConfig{Type: taskStatusEnum},
 			"targetUserKode": &graphql.InputObjectFieldConfig{Type: graphql.String},
-			"meta":           &graphql.InputObjectFieldConfig{Type: graphql.NewList(metaInputType)}, // <-- baru
+			"meta":           &graphql.InputObjectFieldConfig{Type: graphql.NewList(metaInputType)},
+			"projectId":      &graphql.InputObjectFieldConfig{Type: graphql.ID},
+			"startDate":      &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"dueDate":        &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"subtasks":       &graphql.InputObjectFieldConfig{Type: graphql.NewList(graphql.String)},
 		},
 	})
 
@@ -272,6 +320,9 @@ func buildTypes() *Types {
 			"title":       &graphql.InputObjectFieldConfig{Type: graphql.String},
 			"description": &graphql.InputObjectFieldConfig{Type: graphql.String},
 			"status":      &graphql.InputObjectFieldConfig{Type: taskStatusEnum},
+			"startDate":   &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"dueDate":     &graphql.InputObjectFieldConfig{Type: graphql.String},
+			"meta":        &graphql.InputObjectFieldConfig{Type: graphql.NewList(metaInputType)},
 		},
 	})
 
@@ -337,10 +388,14 @@ func buildTypes() *Types {
 		TaskMetaType:               taskMetaType,
 		TaskCommentType:            taskCommentType,
 		TaskType:                   taskType,
+		SubtaskType:                subtaskType,
+		SubtaskStatusEnum:          subtaskStatusEnum,
 		TaskConnectionType:         taskConnectionType,
 		AuthPayloadType:            authPayloadType,
 		CreateTaskInput:            createTaskInput,
 		UpdateTaskInput:            updateTaskInput,
+		CreateSubtaskInput:         createSubtaskInput,
+		UpdateSubtaskInput:         updateSubtaskInput,
 		MetaTypeEnum:               metaTypeEnum,
 		CommentAttachmentType:      commentAttachmentType,
 		CommentAttachmentInputType: commentAttachmentInputType,

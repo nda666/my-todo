@@ -37,6 +37,18 @@ func formatTime(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
+func formatSubtask(s models.Subtask) map[string]interface{} {
+	return map[string]interface{}{
+		"id":          strconv.FormatUint(uint64(s.ID), 10),
+		"taskId":      strconv.FormatUint(uint64(s.TaskID), 10),
+		"description": s.Description,
+		"status":      s.Status,
+		"sortOrder":   s.SortOrder,
+		"createdAt":   formatTime(s.CreatedAt),
+		"updatedAt":   formatTime(s.UpdatedAt),
+	}
+}
+
 func formatTask(task models.Task, currentUserKode string) map[string]interface{} {
 	comments := make([]map[string]interface{}, 0)
 	for _, c := range task.Comments {
@@ -47,6 +59,10 @@ func formatTask(task models.Task, currentUserKode string) map[string]interface{}
 	meta := make([]map[string]interface{}, len(task.Meta))
 	for i, m := range task.Meta {
 		meta[i] = formatMeta(m)
+	}
+	subtasks := make([]map[string]interface{}, len(task.Subtasks))
+	for i, s := range task.Subtasks {
+		subtasks[i] = formatSubtask(s)
 	}
 	return map[string]interface{}{
 		"id":          strconv.FormatUint(uint64(task.ID), 10),
@@ -63,6 +79,7 @@ func formatTask(task models.Task, currentUserKode string) map[string]interface{}
 		"sortOrder":   task.SortOrder,
 		"comments":    comments,
 		"meta":        meta,
+		"subtasks":    subtasks,
 	}
 }
 

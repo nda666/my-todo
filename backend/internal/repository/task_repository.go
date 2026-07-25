@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"golang-todo/internal/models"
@@ -17,6 +18,10 @@ type TaskQueryOptions struct {
 	DivisiKode *int
 	CursorID   uint
 	Limit      int
+	Search     string
+	StartDate  *time.Time
+	DueDate    *time.Time
+	ProjectID  *uint
 }
 
 type ReorderResult struct {
@@ -52,7 +57,10 @@ func withTaskPreloads(db *gorm.DB) *gorm.DB {
 		Preload("Comments.Replies.Attachments").
 		Preload("Comments.Reactions").
 		Preload("Comments.Attachments").
-		Preload("Meta", func(db *gorm.DB) *gorm.DB { return db.Order("sort_order ASC") })
+		Preload("Meta", func(db *gorm.DB) *gorm.DB { return db.Order("sort_order ASC") }).
+		Preload("Subtasks", func(db *gorm.DB) *gorm.DB {
+			return db.Order("CASE WHEN LOWER(status) = 'pending' THEN 0 ELSE 1 END ASC, sort_order ASC, id ASC")
+		})
 }
 
 func (r *taskRepository) FindPaginated(ctx context.Context, opts TaskQueryOptions) ([]models.Task, error) {
@@ -63,6 +71,23 @@ func (r *taskRepository) FindPaginated(ctx context.Context, opts TaskQueryOption
 		query = query.Where("user_kode = ?", *opts.UserKode)
 	case len(opts.UserKodeIn) > 0:
 		query = query.Where("user_kode IN ?", opts.UserKodeIn)
+	}
+
+	if opts.Search != "" {
+		s := "%" + strings.ToLower(opts.Search) + "%"
+		query = query.Where("LOWER(title) LIKE ? OR LOWER(description) LIKE ?", s, s)
+	}
+
+	if opts.ProjectID != nil && *opts.ProjectID > 0 {
+		query = query.Where("id IN (SELECT task_id FROM project_tasks WHERE project_id = ?)", *opts.ProjectID)
+	}
+
+	if opts.StartDate != nil {
+		query = query.Where("(due_date >= ? OR start_date >= ? OR created_at >= ?)", *opts.StartDate, *opts.StartDate, *opts.StartDate)
+	}
+
+	if opts.DueDate != nil {
+		query = query.Where("(start_date <= ? OR due_date <= ? OR created_at <= ?)", *opts.DueDate, *opts.DueDate, *opts.DueDate)
 	}
 
 	if opts.CursorID > 0 {

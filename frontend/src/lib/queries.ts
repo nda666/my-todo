@@ -1,4 +1,4 @@
-import { gql } from "@apollo/client";
+import { gql } from '@apollo/client';
 
 // ==========================================
 // FRAGMENTS (Reusable Fields)
@@ -67,6 +67,15 @@ export const TASK_FIELDS = gql`
       value
       type
     }
+    subtasks {
+      id
+      taskId
+      description
+      status
+      sortOrder
+      createdAt
+      updatedAt
+    }
     comments {
       ...CommentFields
       replies {
@@ -116,8 +125,24 @@ export const LOGIN = gql`
 
 export const GET_TASKS = gql`
   ${TASK_FIELDS}
-  query GetTasks($limit: Int, $cursor: String, $userKode: String) {
-    tasks(limit: $limit, cursor: $cursor, userKode: $userKode) {
+  query GetTasks(
+    $limit: Int
+    $cursor: String
+    $userKode: String
+    $search: String
+    $startDate: String
+    $dueDate: String
+    $projectId: ID
+  ) {
+    tasks(
+      limit: $limit
+      cursor: $cursor
+      userKode: $userKode
+      search: $search
+      startDate: $startDate
+      dueDate: $dueDate
+      projectId: $projectId
+    ) {
       tasks {
         ...TaskFields
       }
@@ -152,13 +177,10 @@ export const CREATE_TASK = gql`
 `;
 
 export const UPDATE_TASK = gql`
+  ${TASK_FIELDS}
   mutation UpdateTask($id: ID!, $input: UpdateTaskInput!) {
     updateTask(id: $id, input: $input) {
-      id
-      title
-      description
-      status
-      updatedAt
+      ...TaskFields
     }
   }
 `;
@@ -411,6 +433,52 @@ export const REASSIGN_PROJECT_TASK = gql`
     reassignProjectTask(taskId: $taskId, targetUserKode: $targetUserKode) {
       id
       userKode
+    }
+  }
+`;
+
+export const CREATE_SUBTASK = gql`
+  mutation CreateSubtask($input: CreateSubtaskInput!) {
+    createSubtask(input: $input) {
+      id
+      taskId
+      description
+      status
+      sortOrder
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_SUBTASK = gql`
+  mutation UpdateSubtask($id: ID!, $input: UpdateSubtaskInput!) {
+    updateSubtask(id: $id, input: $input) {
+      id
+      taskId
+      description
+      status
+      sortOrder
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const DELETE_SUBTASK = gql`
+  mutation DeleteSubtask($id: ID!) {
+    deleteSubtask(id: $id)
+  }
+`;
+
+export const REORDER_SUBTASKS = gql`
+  mutation ReorderSubtasks($taskId: ID!, $orderedIds: [ID!]!) {
+    reorderSubtasks(taskId: $taskId, orderedIds: $orderedIds) {
+      id
+      taskId
+      description
+      status
+      sortOrder
     }
   }
 `;

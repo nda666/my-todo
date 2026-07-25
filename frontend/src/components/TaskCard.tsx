@@ -14,6 +14,7 @@ import {
     DeleteOutlined,
     EditOutlined,
     FieldTimeOutlined,
+    UnorderedListOutlined,
 } from '@ant-design/icons';
 
 import { STATUS_OPTIONS } from '../constants/taskStatus';
@@ -25,6 +26,7 @@ import {
 } from '../types/task';
 import CommentThread from './CommentThread';
 import MetaDisplay from './MetaDisplay';
+import SubtaskList from './SubtaskList';
 import TaskEditModal from './TaskEditModal';
 
 const { Title, Text, Paragraph } = Typography
@@ -64,6 +66,7 @@ export default function TaskCard({
     const [updating, setUpdating] = useState(false)
     const [showAllMeta, setShowAllMeta] = useState(false)
     const [showComments, setShowComments] = useState(false)
+    const [showSubtasks, setShowSubtasks] = useState(false)
 
     const activeStatus = STATUS_OPTIONS.find((s) => s.value === task.status)
     const visibleMeta = showAllMeta ? task.meta : task.meta.slice(0, META_PREVIEW_COUNT)
@@ -160,6 +163,10 @@ export default function TaskCard({
                         </Button>
                     )}
 
+                    <Button type="dashed" onClick={() => setShowSubtasks(!showSubtasks)} icon={<UnorderedListOutlined />}>
+                        Subtask ({task.subtasks?.filter((s) => s.status === 'COMPLETED').length || 0}/{task.subtasks?.length || 0})
+                    </Button>
+
                     <Button type="dashed" onClick={() => setShowComments(!showComments)} icon={<CommentOutlined />}>
                         {showComments ? 'Tutup Komentar' : `Komentar (${task.comments?.length || 0})`}
                     </Button>
@@ -178,6 +185,12 @@ export default function TaskCard({
                     )}
                 </div>
             </div>
+
+            {showSubtasks && (
+                <div className="mt-6 pt-6 !border-t !border-slate-100 dark:!border-slate-800 animate-fadeIn">
+                    <SubtaskList taskId={task.id} subtasks={task.subtasks || []} readOnly={readOnly} />
+                </div>
+            )}
 
             {showComments && (
                 <div className="mt-6 pt-6 !border-t !border-slate-100 dark:!border-slate-800 animate-fadeIn">

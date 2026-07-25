@@ -1,15 +1,35 @@
-import { useCallback } from "react";
+import { useCallback } from 'react';
 
-import { useQuery } from "@apollo/client";
+import { useQuery } from '@apollo/client';
 
-import { GET_TASKS } from "../lib/queries";
-import { Task } from "../types/task";
+import { GET_TASKS } from '../lib/queries';
+import { Task } from '../types/task';
 
 const PAGE_SIZE = 20;
 
-export function useInfiniteTasks(userKode?: string | null) {
+export interface TaskFilters {
+  search?: string;
+  startDate?: string;
+  dueDate?: string;
+  projectId?: string | null;
+}
+
+export function useInfiniteTasks(
+  userKode?: string | null,
+  filters?: TaskFilters,
+) {
+  const queryVariables = {
+    limit: PAGE_SIZE,
+    cursor: null,
+    userKode: userKode || null,
+    search: filters?.search || null,
+    startDate: filters?.startDate || null,
+    dueDate: filters?.dueDate || null,
+    projectId: filters?.projectId || null,
+  };
+
   const { data, loading, fetchMore, networkStatus } = useQuery(GET_TASKS, {
-    variables: { limit: PAGE_SIZE, cursor: null, userKode: userKode || null },
+    variables: queryVariables,
     notifyOnNetworkStatusChange: true,
     skip: userKode === undefined,
   });
@@ -23,9 +43,8 @@ export function useInfiniteTasks(userKode?: string | null) {
     if (!hasMore || loadingMore || !nextCursor) return;
     fetchMore({
       variables: {
-        limit: PAGE_SIZE,
+        ...queryVariables,
         cursor: nextCursor,
-        userKode: userKode || null,
       },
       updateQuery: (prev, { fetchMoreResult }) => {
         if (!fetchMoreResult) return prev;
@@ -37,7 +56,7 @@ export function useInfiniteTasks(userKode?: string | null) {
         };
       },
     });
-  }, [hasMore, loadingMore, nextCursor, userKode, fetchMore]);
+  }, [hasMore, loadingMore, nextCursor, queryVariables, fetchMore]);
 
   return { tasks, loading: loading && !data, loadingMore, hasMore, loadMore };
 }

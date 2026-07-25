@@ -1,4 +1,5 @@
 export type TaskStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED";
+export type SubtaskStatus = "PENDING" | "COMPLETED";
 export type MetaType = "TEXT" | "LINK" | "COLOR" | "DATE" | "FILE" | "IMAGE";
 
 export interface Jabatan {
@@ -77,6 +78,16 @@ export interface TaskMeta {
   sortOrder: number;
 }
 
+export interface Subtask {
+  id: string;
+  taskId: string;
+  description: string;
+  status: SubtaskStatus;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -89,6 +100,7 @@ export interface Task {
   sortOrder: number;
   comments: TaskComment[];
   meta: TaskMeta[];
+  subtasks?: Subtask[];
 }
 
 export interface TaskConnection {

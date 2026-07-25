@@ -29,6 +29,7 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 func AutoMigrateAll(db *gorm.DB) error {
 	tablesWithCharset := []interface{}{
 		&models.Task{},
+		&models.Subtask{},
 		&models.TaskComment{},
 		&models.TaskMeta{},
 		&models.CommentReaction{},

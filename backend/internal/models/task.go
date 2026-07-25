@@ -26,6 +26,7 @@ type Task struct {
 	UpdatedAt   time.Time     `gorm:"autoUpdateTime"`
 	Comments    []TaskComment `gorm:"foreignKey:TaskID"`
 	Meta        []TaskMeta    `gorm:"foreignKey:TaskID"`
+	Subtasks    []Subtask     `gorm:"foreignKey:TaskID"`
 }
 
 func (Task) TableName() string {

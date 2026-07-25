@@ -43,6 +43,7 @@ import {
 import CreateTaskModal from '../components/CreateTaskModal';
 import DragTaskPreview from '../components/DragTaskPreview';
 import SortableTaskCard from '../components/SortableTaskCard';
+import TaskSearchFilter from '../components/TaskSearchFilter';
 import TaskStatusTabs from '../components/TaskStatusTabs';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
@@ -83,11 +84,26 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useLocalStorageState<'card' | 'table'>('task_view_mode', 'card')
   const [statusTab, setStatusTab] = useState<StatusTabKey>('all')
   const [draggingTask, setDraggingTask] = useState<Task | null>(null)
+  const [search, setSearch] = useState('')
+  const [startDate, setStartDate] = useState<string | null>(null)
+  const [dueDate, setDueDate] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const isLeader = me?.pegawai?.statusLeader === 1
 
-  const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(me?.kodeku || null)
+  const taskFilters = useMemo(
+    () => ({
+      search: search.trim() || undefined,
+      startDate: startDate || undefined,
+      dueDate: dueDate || undefined,
+      projectId: projectId || undefined,
+    }),
+    [search, startDate, dueDate, projectId]
+  )
+
+  const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(me?.kodeku || null, taskFilters)
   const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
 
   const { data: colleaguesData } = useQuery(GET_COLLEAGUES, { pollInterval: 30000 })
@@ -127,7 +143,15 @@ export default function Dashboard() {
   const [reorderMetaMutation] = useMutation(REORDER_META)
   const [reorderTasksMutation] = useMutation(REORDER_TASKS)
 
-  const handleCreate = async (values: { title: string; description?: string; meta: MetaDraft[]; startDate?: string; dueDate?: string }) => {
+  const handleCreate = async (values: {
+    title: string
+    description?: string
+    meta: MetaDraft[]
+    startDate?: string
+    dueDate?: string
+    projectId?: string | null
+    subtasks?: string[]
+  }) => {
     try {
       await createTaskMutation({
         variables: {
@@ -135,6 +159,10 @@ export default function Dashboard() {
             title: values.title.trim(),
             description: values.description?.trim() || null,
             meta: values.meta.filter((m) => m.key.trim()).map((m) => ({ key: m.key.trim(), value: m.value || null, type: m.type })),
+            startDate: values.startDate || null,
+            dueDate: values.dueDate || null,
+            projectId: values.projectId || null,
+            subtasks: values.subtasks || [],
           },
         },
       })
@@ -196,7 +224,7 @@ export default function Dashboard() {
     )
   }
 
-  const canManageTask = (task: Task) => task.userKode === me?.kodeku || task.createdBy === me?.kodeku
+  const canManageTask = (task: Task) => task?.userKode === me?.kodeku || task?.createdBy === me?.kodeku
 
   const stats = {
     total: teamTaskCounts[me?.kodeku || ''] || 0,
@@ -285,6 +313,26 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <TaskSearchFilter
+            search={search}
+            onSearchChange={setSearch}
+            startDate={startDate}
+            dueDate={dueDate}
+            onDateRangeChange={(s, d) => {
+              setStartDate(s)
+              setDueDate(d)
+            }}
+            projectId={projectId}
+            onProjectIdChange={setProjectId}
+            onReset={() => {
+              setSearch('')
+              setStartDate(null)
+              setDueDate(null)
+              setProjectId(null)
+            }}
+            loading={loading}
+          />
+
           <div className="mb-4">
             <TaskStatusTabs activeKey={statusTab} onChange={setStatusTab} counts={counts} />
           </div>
@@ -372,7 +420,7 @@ export default function Dashboard() {
                               onSetMeta={handleSetMeta}
                               onDeleteMeta={handleDeleteMeta}
                               onReorderMeta={handleReorderMeta}
-                              readOnly
+                              readOnly={!canManageTask(task)}
                             />
                           ))}
                         </div>

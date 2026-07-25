@@ -17,6 +17,7 @@ type Repositories struct {
 	Reaction   ReactionRepository
 	Profile    ProfileRepository
 	Project    ProjectRepository
+	Subtask    SubtaskRepository
 }
 
 func NewRepositories(db *gorm.DB, doranClient *doranapi.Client, c *cache.Cache) *Repositories {
@@ -31,5 +32,6 @@ func NewRepositories(db *gorm.DB, doranClient *doranapi.Client, c *cache.Cache) 
 		Reaction:   NewReactionRepository(db),
 		Profile:    NewProfileRepository(db),
 		Project:    NewProjectRepository(db),
+		Subtask:    NewSubtaskRepository(db),
 	}
 }

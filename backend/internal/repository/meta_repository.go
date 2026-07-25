@@ -13,6 +13,7 @@ type MetaRepository interface {
 	Create(ctx context.Context, meta *models.TaskMeta) error
 	Upsert(ctx context.Context, taskID uint, key string, value string, metaType models.MetaType) (*models.TaskMeta, error)
 	Delete(ctx context.Context, id uint, kodeku string) (bool, error) // hanya boleh kalau task-nya milik/dibuat oleh kodeku
+	DeleteAllForTask(ctx context.Context, taskID uint) error
 	Reorder(ctx context.Context, taskID uint, orderedIDs []uint) error
 }
 
@@ -60,6 +61,10 @@ func (r *metaRepository) Delete(ctx context.Context, id uint, kodeku string) (bo
 	}
 	result := r.db.WithContext(ctx).Delete(&meta)
 	return result.RowsAffected > 0, result.Error
+}
+
+func (r *metaRepository) DeleteAllForTask(ctx context.Context, taskID uint) error {
+	return r.db.WithContext(ctx).Where("task_id = ?", taskID).Delete(&models.TaskMeta{}).Error
 }
 
 func (r *metaRepository) Reorder(ctx context.Context, taskID uint, orderedIDs []uint) error {

@@ -1,23 +1,24 @@
 import React, {
-    useEffect,
-    useState,
+  useEffect,
+  useState,
 } from 'react';
 
 import {
-    Button,
-    Form,
-    Input,
-    Modal,
-    Select,
-    Typography,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Typography,
 } from 'antd';
 
 import { STATUS_OPTIONS } from '../constants/taskStatus';
 import {
-    MetaDraft,
-    Task,
-    TaskStatus,
+  MetaDraft,
+  Task,
+  TaskStatus,
 } from '../types/task';
+import SubtaskList from './SubtaskList';
 import TaskMetaEditor from './TaskMetaEditor';
 
 const { Title } = Typography
@@ -33,17 +34,16 @@ interface TaskEditModalProps {
     open: boolean
     task: Task | null
     onCancel: () => void
-    onSubmit: (id: string, values: { title: string; description?: string | null; status: TaskStatus }) => Promise<void>
-    onSetMeta: (taskId: string, key: string, value: string | null, type: MetaDraft['type']) => Promise<{ id: string }>
-    onDeleteMeta: (id: string) => Promise<void>
-    onReorderMeta: (taskId: string, orderedIds: string[]) => void
+    onSubmit: (id: string, values: { title: string; description?: string | null; status: TaskStatus; meta?: Array<{ key: string; value?: string | null; type: MetaDraft['type'] }> }) => Promise<void>
+    onSetMeta?: (taskId: string, key: string, value: string | null, type: MetaDraft['type']) => Promise<{ id: string }>
+    onDeleteMeta?: (id: string) => Promise<void>
+    onReorderMeta?: (taskId: string, orderedIds: string[]) => void
     loading: boolean
 }
 
-export default function TaskEditModal({ open, task, onCancel, onSubmit, onSetMeta, onDeleteMeta, onReorderMeta, loading }: TaskEditModalProps) {
+export default function TaskEditModal({ open, task, onCancel, onSubmit, loading }: TaskEditModalProps) {
     const [form] = Form.useForm<EditTaskFormValues>()
     const [metaItems, setMetaItems] = useState<MetaDraft[]>([])
-    const [savingMeta, setSavingMeta] = useState(false)
 
     useEffect(() => {
         if (task && open) {
@@ -53,7 +53,7 @@ export default function TaskEditModal({ open, task, onCancel, onSubmit, onSetMet
                 status: task.status,
             })
             setMetaItems(
-                task.meta.map((m) => ({
+                (task.meta || []).map((m) => ({
                     draftId: m.id,
                     id: m.id,
                     key: m.key,
@@ -67,31 +67,20 @@ export default function TaskEditModal({ open, task, onCancel, onSubmit, onSetMet
     const handleFinish = async (values: EditTaskFormValues) => {
         if (!task) return
 
+        const formattedMeta = metaItems
+            .filter((item) => item.key.trim())
+            .map((item) => ({
+                key: item.key.trim(),
+                value: item.value || null,
+                type: item.type,
+            }))
+
         await onSubmit(task.id, {
             title: values.title.trim(),
             description: values.description?.trim() || null,
             status: values.status,
+            meta: formattedMeta,
         })
-
-        // Sinkronkan Info Tambahan: hapus semua yang lama, buat ulang dari isi form saat ini.
-        setSavingMeta(true)
-        try {
-            const originalIds = task.meta.map((m) => m.id)
-            for (const id of originalIds) {
-                await onDeleteMeta(id)
-            }
-            const newIds: string[] = []
-            for (const item of metaItems) {
-                if (!item.key.trim()) continue
-                const created = await onSetMeta(task.id, item.key.trim(), item.value || null, item.type)
-                if (created?.id) newIds.push(created.id)
-            }
-            if (newIds.length > 0) {
-                await onReorderMeta(task.id, newIds)
-            }
-        } finally {
-            setSavingMeta(false)
-        }
     }
 
     return (
@@ -125,6 +114,12 @@ export default function TaskEditModal({ open, task, onCancel, onSubmit, onSetMet
                     <Select options={STATUS_OPTIONS} className="w-full" size="large" />
                 </Form.Item>
 
+                {task && (
+                    <div className="mb-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <SubtaskList taskId={task.id} subtasks={task.subtasks || []} />
+                    </div>
+                )}
+
                 <div className="mb-4">
                     <TaskMetaEditor items={metaItems} onChange={setMetaItems} />
                 </div>
@@ -133,7 +128,7 @@ export default function TaskEditModal({ open, task, onCancel, onSubmit, onSetMet
                     <Button onClick={onCancel} size="large" className="rounded-lg">
                         Batal
                     </Button>
-                    <Button type="primary" htmlType="submit" loading={loading || savingMeta} size="large" className="rounded-lg px-6 font-medium">
+                    <Button type="primary" htmlType="submit" loading={loading} size="large" className="rounded-lg px-6 font-medium">
                         Simpan
                     </Button>
                 </div>

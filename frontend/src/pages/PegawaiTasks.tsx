@@ -1,46 +1,48 @@
 // frontend/src/pages/PegawaiTasks.tsx
 import React, {
-    useCallback,
-    useState,
+  useCallback,
+  useMemo,
+  useState,
 } from 'react';
 
 import {
-    Card,
-    Collapse,
-    Empty,
-    Layout,
-    Segmented,
-    Spin,
-    Typography,
+  Card,
+  Collapse,
+  Empty,
+  Layout,
+  Segmented,
+  Spin,
+  Typography,
 } from 'antd';
 import {
-    useNavigate,
-    useParams,
+  useNavigate,
+  useParams,
 } from 'react-router-dom';
 
 import {
-    AppstoreOutlined,
-    TableOutlined,
+  AppstoreOutlined,
+  TableOutlined,
 } from '@ant-design/icons';
 import { useMutation } from '@apollo/client';
 import {
-    closestCenter,
-    DndContext,
-    DragEndEvent,
-    DragOverlay,
-    DragStartEvent,
-    PointerSensor,
-    useSensor,
-    useSensors,
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import {
-    arrayMove,
-    SortableContext,
-    verticalListSortingStrategy,
+  arrayMove,
+  SortableContext,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 
 import DragTaskPreview from '../components/DragTaskPreview';
 import SortableTaskCard from '../components/SortableTaskCard';
+import TaskSearchFilter from '../components/TaskSearchFilter';
 import TaskStatusTabs from '../components/TaskStatusTabs';
 import TaskTable from '../components/TaskTable';
 import { useAuth } from '../contexts/AuthContext';
@@ -50,23 +52,23 @@ import { useLocalStorageState } from '../hooks/useLocalStorageState';
 import { useTeamHeader } from '../layouts/TeamLayout';
 import { CloudinaryUploadResult } from '../lib/cloudinary';
 import {
-    ADD_COMMENT,
-    DELETE_META,
-    DELETE_TASK,
-    REORDER_META,
-    REORDER_TASKS,
-    SET_META,
-    TOGGLE_REACTION,
-    UPDATE_TASK,
+  ADD_COMMENT,
+  DELETE_META,
+  DELETE_TASK,
+  REORDER_META,
+  REORDER_TASKS,
+  SET_META,
+  TOGGLE_REACTION,
+  UPDATE_TASK,
 } from '../lib/queries';
 import {
-    MetaDraft,
-    Task,
+  MetaDraft,
+  Task,
 } from '../types/task';
 import {
-    countTasksByTab,
-    filterTasksByTab,
-    StatusTabKey,
+  countTasksByTab,
+  filterTasksByTab,
+  StatusTabKey,
 } from '../utils/taskFilters';
 
 const { Header, Content } = Layout
@@ -79,11 +81,27 @@ export default function PegawaiTasks() {
     const [viewMode, setViewMode] = useLocalStorageState<'card' | 'table'>('task_view_mode', 'card')
     const [statusTab, setStatusTab] = useState<StatusTabKey>('all')
     const [draggingTask, setDraggingTask] = useState<Task | null>(null)
+    const [search, setSearch] = useState('')
+    const [startDate, setStartDate] = useState<string | null>(null)
+    const [dueDate, setDueDate] = useState<string | null>(null)
+    const [projectId, setProjectId] = useState<string | null>(null)
+
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const handleBack = useCallback(() => navigate(`/teams/${divisiId}`), [navigate, divisiId])
     const isOwnPage = pegawaiId === me?.kodeku
-    const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(pegawaiId || null)
+
+    const taskFilters = useMemo(
+        () => ({
+            search: search.trim() || undefined,
+            startDate: startDate || undefined,
+            dueDate: dueDate || undefined,
+            projectId: projectId || undefined,
+        }),
+        [search, startDate, dueDate, projectId]
+    )
+
+    const { tasks, loading, loadingMore, hasMore, loadMore } = useInfiniteTasks(pegawaiId || null, taskFilters)
     const sentinelRef = useInfiniteScrollSentinel(loadMore, hasMore && !loading)
 
     const [updateTaskMutation] = useMutation(UPDATE_TASK)
@@ -181,6 +199,26 @@ export default function PegawaiTasks() {
                         />
                     </div>
 
+                    <TaskSearchFilter
+                        search={search}
+                        onSearchChange={setSearch}
+                        startDate={startDate}
+                        dueDate={dueDate}
+                        onDateRangeChange={(s, d) => {
+                            setStartDate(s)
+                            setDueDate(d)
+                        }}
+                        projectId={projectId}
+                        onProjectIdChange={setProjectId}
+                        onReset={() => {
+                            setSearch('')
+                            setStartDate(null)
+                            setDueDate(null)
+                            setProjectId(null)
+                        }}
+                        loading={loading}
+                    />
+
                     <div className="mb-4">
                         <TaskStatusTabs activeKey={statusTab} onChange={setStatusTab} counts={counts} />
                     </div>
@@ -264,7 +302,7 @@ export default function PegawaiTasks() {
                                                             onSetMeta={handleSetMeta}
                                                             onDeleteMeta={handleDeleteMeta}
                                                             onReorderMeta={handleReorderMeta}
-                                                            readOnly
+                                                            readOnly={!canManageTask(task)}
                                                         />
                                                     ))}
                                                 </div>

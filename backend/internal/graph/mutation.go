@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang-todo/internal/auth"
@@ -103,8 +104,23 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 				if status, ok := input["status"]; ok && status != nil {
 					task.Status = status.(models.TaskStatus)
 				}
+				if v, ok := input["startDate"]; ok && v != nil {
+					task.StartDate = parseDatePtr(v)
+				}
+				if v, ok := input["dueDate"]; ok && v != nil {
+					task.DueDate = parseDatePtr(v)
+				}
 				if err := repos.Task.Create(p.Context, &task); err != nil {
 					return nil, err
+				}
+
+				if projVal, ok := input["projectId"]; ok && projVal != nil && projVal != "" {
+					projID, parseErr := parseID(projVal)
+					if parseErr == nil && projID > 0 {
+						if err := repos.Project.AttachTask(p.Context, projID, task.ID); err != nil {
+							log.Printf("Failed to attach task %d to project %d: %v", task.ID, projID, err)
+						}
+					}
 				}
 
 				if metaList, ok := input["meta"].([]interface{}); ok {
@@ -128,6 +144,20 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 							SortOrder: i,
 						}
 						repos.Meta.Create(p.Context, &meta)
+					}
+				}
+
+				if subtaskList, ok := input["subtasks"].([]interface{}); ok {
+					for i, raw := range subtaskList {
+						if desc, ok := raw.(string); ok && strings.TrimSpace(desc) != "" {
+							st := models.Subtask{
+								TaskID:      task.ID,
+								Description: strings.TrimSpace(desc),
+								Status:      models.SubtaskStatusPending,
+								SortOrder:   i,
+							}
+							repos.Subtask.Create(p.Context, &st)
+						}
 					}
 				}
 
@@ -175,8 +205,38 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 					}
 					task.Status = newStatus
 				}
+				if v, ok := input["startDate"]; ok {
+					task.StartDate = parseDatePtr(v)
+				}
+				if v, ok := input["dueDate"]; ok {
+					task.DueDate = parseDatePtr(v)
+				}
 				if err := repos.Task.Save(p.Context, task); err != nil {
 					return nil, err
+				}
+
+				if metaList, ok := input["meta"].([]interface{}); ok {
+					if err := repos.Meta.DeleteAllForTask(p.Context, task.ID); err == nil {
+						for i, raw := range metaList {
+							m := raw.(map[string]interface{})
+							_type := m["type"].(models.MetaType)
+							cleanVal := strVal(m["value"])
+							if (_type == models.MetaTypeFile || _type == models.MetaTypeImage) && cleanVal != "" && !strings.HasPrefix(cleanVal, "http") {
+								movedUrl, err := cloudinaryup.MoveAssetIdToPublicFolder(p.Context, cleanVal)
+								if err == nil {
+									cleanVal = movedUrl
+								}
+							}
+							meta := models.TaskMeta{
+								TaskID:    task.ID,
+								Key:       m["key"].(string),
+								Value:     cleanVal,
+								Type:      _type,
+								SortOrder: i,
+							}
+							_ = repos.Meta.Create(p.Context, &meta)
+						}
+					}
 				}
 				updated, err := repos.Task.FindByID(p.Context, task.ID)
 				if err != nil {
@@ -822,6 +882,151 @@ func mutationFields(repos *repository.Repositories, authService *auth.Service, a
 					return nil, err
 				}
 				return true, nil
+			},
+		},
+
+		"createSubtask": &graphql.Field{
+			Type: t.SubtaskType,
+			Args: graphql.FieldConfigArgument{
+				"input": &graphql.ArgumentConfig{Type: graphql.NewNonNull(t.CreateSubtaskInput)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				_, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				input := p.Args["input"].(map[string]interface{})
+				taskID, err := parseID(input["taskId"])
+				if err != nil {
+					return nil, errors.New("invalid taskId")
+				}
+				desc, _ := input["description"].(string)
+				if desc == "" {
+					return nil, errors.New("description is required")
+				}
+				subtask := models.Subtask{
+					TaskID:      taskID,
+					Description: desc,
+					Status:      models.SubtaskStatusPending,
+				}
+				if statusVal, ok := input["status"]; ok && statusVal != nil {
+					subtask.Status = statusVal.(models.SubtaskStatus)
+				}
+
+				if err := repos.Subtask.Create(p.Context, &subtask); err != nil {
+					return nil, err
+				}
+
+				_, _ = repos.Subtask.CheckAndUpdateParentTaskCompletion(p.Context, taskID)
+
+				return formatSubtask(subtask), nil
+			},
+		},
+
+		"updateSubtask": &graphql.Field{
+			Type: t.SubtaskType,
+			Args: graphql.FieldConfigArgument{
+				"id":    &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"input": &graphql.ArgumentConfig{Type: graphql.NewNonNull(t.UpdateSubtaskInput)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				_, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				id, err := parseID(p.Args["id"])
+				if err != nil {
+					return nil, errors.New("invalid id")
+				}
+				subtask, err := repos.Subtask.FindByID(p.Context, id)
+				if err != nil {
+					return nil, err
+				}
+
+				input := p.Args["input"].(map[string]interface{})
+				if descVal, ok := input["description"]; ok && descVal != nil {
+					subtask.Description = descVal.(string)
+				}
+				if statusVal, ok := input["status"]; ok && statusVal != nil {
+					subtask.Status = statusVal.(models.SubtaskStatus)
+				}
+
+				if err := repos.Subtask.Update(p.Context, subtask); err != nil {
+					return nil, err
+				}
+
+				_, _ = repos.Subtask.CheckAndUpdateParentTaskCompletion(p.Context, subtask.TaskID)
+
+				return formatSubtask(*subtask), nil
+			},
+		},
+
+		"deleteSubtask": &graphql.Field{
+			Type: graphql.Boolean,
+			Args: graphql.FieldConfigArgument{
+				"id": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				_, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				id, err := parseID(p.Args["id"])
+				if err != nil {
+					return nil, errors.New("invalid id")
+				}
+				subtask, err := repos.Subtask.FindByID(p.Context, id)
+				if err != nil {
+					return nil, err
+				}
+				taskID := subtask.TaskID
+
+				if err := repos.Subtask.Delete(p.Context, id); err != nil {
+					return nil, err
+				}
+
+				_, _ = repos.Subtask.CheckAndUpdateParentTaskCompletion(p.Context, taskID)
+
+				return true, nil
+			},
+		},
+
+		"reorderSubtasks": &graphql.Field{
+			Type: graphql.NewList(t.SubtaskType),
+			Args: graphql.FieldConfigArgument{
+				"taskId":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+				"orderedIds": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(graphql.ID)))},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				_, err := auth.RequireUser(p.Context)
+				if err != nil {
+					return nil, err
+				}
+				taskID, err := parseID(p.Args["taskId"])
+				if err != nil {
+					return nil, errors.New("invalid taskId")
+				}
+				rawIDs, ok := p.Args["orderedIds"].([]interface{})
+				if !ok {
+					return nil, errors.New("invalid orderedIds format")
+				}
+				var orderedIDs []uint
+				for _, raw := range rawIDs {
+					id, err := parseID(raw)
+					if err == nil {
+						orderedIDs = append(orderedIDs, id)
+					}
+				}
+
+				updated, err := repos.Subtask.Reorder(p.Context, taskID, orderedIDs)
+				if err != nil {
+					return nil, err
+				}
+				formatted := make([]map[string]interface{}, len(updated))
+				for i, s := range updated {
+					formatted[i] = formatSubtask(s)
+				}
+				return formatted, nil
 			},
 		},
 	}
